@@ -31,6 +31,13 @@ export default function VideoPlayer({
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
   const [layoutMode, setLayoutMode] = useState<"grid" | "enlarged" | "pip">("grid");
 
+  // Automatically start with PiP mode on mobile and tablet screens for optimal visual space
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setLayoutMode("pip");
+    }
+  }, []);
+
   // Keep references updated
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -149,7 +156,7 @@ export default function VideoPlayer({
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain bg-slate-950"
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
@@ -191,7 +198,7 @@ export default function VideoPlayer({
       <div 
         className={`transition-all overflow-hidden bg-slate-950 flex items-center justify-center ${
           layoutMode === "pip"
-            ? "absolute bottom-16 right-6 w-28 h-40 sm:w-44 sm:h-56 rounded-2xl border-2 border-white/90 shadow-2xl z-30 transform hover:scale-105 transition-all duration-300"
+            ? "absolute bottom-3 right-3 w-20 h-28 sm:bottom-4 sm:right-4 sm:w-32 sm:h-44 md:bottom-6 md:right-6 md:w-40 md:h-52 rounded-2xl border-2 border-white/90 shadow-2xl z-30 transform hover:scale-105 transition-all duration-300"
             : "relative flex-1 rounded-2xl border border-slate-800"
         }`}
       >
@@ -202,7 +209,9 @@ export default function VideoPlayer({
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-cover mirror-mode"
+            className={`w-full h-full bg-slate-950 mirror-mode ${
+              layoutMode === "pip" ? "object-cover" : "object-contain"
+            }`}
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center p-3 bg-radial from-slate-900 to-slate-950">

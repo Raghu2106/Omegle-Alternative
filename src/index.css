@@ -4,3 +4,27 @@
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
+
+/* Core Mobile & Tablet viewport stabilization rules */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  touch-action: manipulation; /* Solves 300ms double-tap delay and suppresses automatic zooming */
+}
+
+/* Prevent highlight flashes on mobile touch taps */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Enforce 16px input font size on screens under md (768px) to prevent safari auto-zoom-on-focus */
+@media screen and (max-width: 767px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+

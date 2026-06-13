@@ -484,7 +484,7 @@ export default function App() {
 
   return (
     <div className={`bg-slate-50 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900 ${
-      appState === "landing" ? "min-h-screen overflow-y-auto" : "h-screen overflow-hidden"
+      appState === "landing" ? "min-h-screen min-h-[100dvh] overflow-y-auto" : "h-screen h-[100dvh] overflow-hidden"
     }`}>
       
       {/* Global Simple Navigation Bar */}
@@ -537,7 +537,7 @@ export default function App() {
 
       {/* Main Container viewport */}
       <main className={`flex-grow flex-1 flex flex-col ${
-        appState === "landing" ? "min-h-[500px]" : "h-full min-h-0 overflow-hidden"
+        appState === "landing" ? "min-h-[500px]" : "min-h-0 overflow-hidden"
       }`}>
         <AnimatePresence mode="wait">          {appState === "landing" ? (
             <motion.div
@@ -550,8 +550,7 @@ export default function App() {
               className="flex-grow flex-1 w-full max-w-[1300px] mx-auto flex flex-row items-center justify-center py-8 px-4 gap-6"
             >
               {/* Left Skyscraper banner */}
-              <div className="hidden xl:flex flex-col items-center justify-start gap-1.5 w-[160px] h-[630px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center py-2 select-none relative overflow-hidden">
-                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
+              <div className="hidden xl:flex fixed left-0 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-l-0 border-slate-200 bg-white shadow-xs text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
 
@@ -777,8 +776,7 @@ export default function App() {
               </div>
 
               {/* Right Skyscraper banner */}
-              <div className="hidden xl:flex flex-col items-center justify-start gap-1.5 w-[160px] h-[630px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center py-2 select-none relative overflow-hidden">
-                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
+              <div className="hidden xl:flex fixed right-0 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-r-0 border-slate-200 bg-white shadow-xs text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
             </motion.div>
