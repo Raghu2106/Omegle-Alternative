@@ -5,6 +5,7 @@ import { Message, AppState } from "./types";
 import VideoPlayer from "./components/VideoPlayer";
 import ChatPanel from "./components/ChatPanel";
 import AdContainer from "./components/AdContainer";
+import { initGA, trackEvent } from "./utils/analytics";
 import { 
   Users, 
   Sparkles, 
@@ -76,6 +77,7 @@ export default function App() {
 
   // Auto-connect to global socket statistics update on layout spawn
   useEffect(() => {
+    initGA();
     initSocketConnection();
     return () => {
       disconnectActiveSockets();
@@ -120,6 +122,13 @@ export default function App() {
       setCommonInterests(common);
       setAppState("paired");
       setStrangerIsTyping(false);
+
+      trackEvent("match_connected", {
+        mode: modeRef.current,
+        initiator,
+        common_interests_count: common.length,
+        common_interests: common,
+      });
 
       addSystemMessage("Stranger connected!");
       if (common.length > 0) {
@@ -175,6 +184,7 @@ export default function App() {
     socket.on("stranger-disconnected", () => {
       addSystemMessage("Stranger has disconnected.");
       cleanPeerConnection();
+      trackEvent("match_disconnected", { mode: modeRef.current });
       if (autoConnectRef.current) {
         addSystemMessage("Auto-Connecting with a new stranger in 1.5 seconds...");
         setTimeout(() => {
@@ -354,10 +364,12 @@ export default function App() {
     }
     setInterests((prev) => [...prev, formatted]);
     setInterestInput("");
+    trackEvent("add_interest_tag", { tag: formatted });
   };
 
   const removeInterest = (item: string) => {
     setInterests((prev) => prev.filter((i) => i !== item));
+    trackEvent("remove_interest_tag", { tag: item });
   };
 
   const handleInterestKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -374,6 +386,8 @@ export default function App() {
     setCommonInterests([]);
     setRemoteStream(null);
     setAppState("searching");
+
+    trackEvent("join_search", { mode, interests_count: interests.length, interests });
 
     addSystemMessage("Routing to connection pool...");
 
@@ -399,6 +413,7 @@ export default function App() {
     setAppState("idle");
     cleanPeerConnection();
     addSystemMessage("Connection paused. You can edit your interests or click Resume/Connect to find a stranger.");
+    trackEvent("match_paused", { mode });
   };
 
   // Skip partner/Find new pair
@@ -407,6 +422,7 @@ export default function App() {
     setMessages([]);
     setAppState("searching");
     addSystemMessage("Looking for a new stranger...");
+    trackEvent("match_skipped", { mode, interests_count: interests.length });
 
     socketRef.current?.emit("start-search", {
       interests,
@@ -421,6 +437,7 @@ export default function App() {
     cleanPeerConnection();
     stopLocalMediaStream();
     setAppState("landing");
+    trackEvent("match_stopped", { mode });
   };
 
   // Live client-side texting proxy
@@ -428,6 +445,11 @@ export default function App() {
     if (!partnerId) return;
     addMessage("you", text);
     socketRef.current?.emit("chat-message", { text });
+    trackEvent("send_message", { 
+      mode, 
+      char_count: text.length, 
+      word_count: text.split(/\s+/).filter(Boolean).length 
+    });
   };
 
   const handleTypingStatus = (isTyping: boolean) => {
@@ -443,6 +465,7 @@ export default function App() {
         const nextState = !videoTracks[0].enabled;
         videoTracks[0].enabled = nextState;
         setCameraActive(nextState);
+        trackEvent("toggle_camera", { enabled: nextState });
       }
     }
   };
@@ -454,6 +477,7 @@ export default function App() {
         const nextState = !audioTracks[0].enabled;
         audioTracks[0].enabled = nextState;
         setMicActive(nextState);
+        trackEvent("toggle_mic", { enabled: nextState });
       }
     }
   };
