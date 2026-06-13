@@ -285,7 +285,16 @@ export default function App() {
 
   // WebRTC Peer connection signaling & establishment
   const initiateWebRTCPeer = async (peerSocketId: string, isInitiator: boolean) => {
-    cleanPeerConnection();
+    // Clean existing peer connection and remote stream without resetting the partner ID
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch (e) {
+        console.warn("Error closing old PeerConnection", e);
+      }
+      pcRef.current = null;
+    }
+    setRemoteStream(null);
 
     // Standard STUN servers for robust NAT traversals
     const pc = new RTCPeerConnection({
@@ -298,6 +307,17 @@ export default function App() {
     });
 
     pcRef.current = pc;
+
+    // Monitor WebRTC states
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
+    };
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
+    };
+    pc.onsignalingstatechange = () => {
+      console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
+    };
 
     // Attach local stream tracks to WebRTC pipe
     const currentLocalStream = localStreamRef.current;
