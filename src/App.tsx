@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Message, AppState } from "./types";
 import VideoPlayer from "./components/VideoPlayer";
 import ChatPanel from "./components/ChatPanel";
+import AdContainer from "./components/AdContainer";
 import { 
   Users, 
   Sparkles, 
@@ -463,10 +464,10 @@ export default function App() {
     }`}>
       
       {/* Global Simple Navigation Bar */}
-      <nav id="app-navigation" className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-2xs">
+      <nav id="app-navigation" className="bg-white border-b border-slate-100 px-6 py-2 md:py-3 flex items-center justify-between sticky top-0 z-50 shadow-2xs h-[110px] md:h-[110px] shrink-0">
         <div 
           onClick={handleStopMatch}
-          className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none"
+          className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none shrink-0"
           title="Return to home page"
         >
           <div className="h-9 w-9 bg-linear-to-tr from-sky-400 via-indigo-500 to-emerald-400 rounded-xl flex items-center justify-center text-white font-extrabold tracking-tighter text-lg shadow-md relative overflow-hidden">
@@ -474,18 +475,25 @@ export default function App() {
             <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-emerald-300 rounded-full animate-ping" />
             <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
           </div>
-          <div>
+          <div className="hidden sm:block">
             <h1 className="text-sm font-extrabold tracking-tight text-slate-900 uppercase">Umegle</h1>
             <p className="text-[10px] text-slate-450 font-medium tracking-wide">Secure interest-based video chat</p>
           </div>
         </div>
 
+        {/* Dynamic Horizontal Header Ad Placement */}
+        <div className="flex-grow flex items-center justify-center max-w-[280px] sm:max-w-[468px] lg:max-w-[728px] h-[90px] mx-2 sm:mx-4 relative overflow-hidden select-none">
+          <div className="scale-[0.55] xs:scale-[0.7] sm:scale-[0.85] md:scale-100 origin-center">
+            <AdContainer idKey="c7c1f20ab8894b1ce40d9f3165e0672a" width={728} height={90} className="border-0 bg-transparent" />
+          </div>
+        </div>
+
         {/* Global engagement & back action triggers */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-2 bg-[#f4f7f6] border border-slate-200/50 px-3.5 py-1.5 rounded-full shadow-xs">
             <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
             <span className="text-xs font-mono font-semibold text-slate-700">
-              {onlineCount ? onlineCount : "..."} Strangers online
+              {onlineCount ? onlineCount : "..."} Strangers
             </span>
           </div>
         </div>
@@ -493,7 +501,7 @@ export default function App() {
 
       {/* Main Container viewport */}
       <main className={`flex-grow flex-1 flex flex-col ${
-        appState === "landing" ? "min-h-[500px]" : "h-[calc(100vh-69px)] min-h-0 overflow-hidden"
+        appState === "landing" ? "min-h-[500px]" : "h-[calc(100vh-110px)] min-h-0 overflow-hidden"
       }`}>
         <AnimatePresence mode="wait">          {appState === "landing" ? (
             <motion.div
@@ -728,6 +736,12 @@ export default function App() {
                         Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
                       </p>
                     </div>
+                  </div>
+
+                  {/* Dynamic Adsterra Right Column Rectangular Ad Banner */}
+                  <div className="flex flex-col items-center gap-1.5 py-1 text-center select-none shadow-3xs rounded-xl bg-white border border-slate-100 p-2">
+                    <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
+                    <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-xl border border-slate-100 bg-white shadow-2xs" />
                   </div>
                 </div>
 

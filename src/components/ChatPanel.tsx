@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Send, Hand, HelpCircle, X, Shield, Sparkles, RefreshCw, Settings, Pause, Play } from "lucide-react";
 import { Message } from "../types";
+import AdContainer from "./AdContainer";
 
 interface ChatPanelProps {
   messages: Message[];
@@ -285,14 +286,22 @@ export default function ChatPanel({
 
         {/* Empty placeholder if no messages */}
         {messages.length === 0 && !isSearching && !isPaired && (
-          <div className="flex flex-col items-center justify-center h-48 text-center max-w-sm mx-auto space-y-3">
-            <div className="p-3 bg-slate-50 border border-slate-100 rounded-full text-slate-400">
-              <Shield className="w-6 h-6 text-slate-400" />
+          <div className="flex flex-col items-center justify-center min-h-[420px] text-center max-w-sm mx-auto space-y-4 py-4">
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-full text-slate-400">
+                <Shield className="w-5 h-5 text-slate-400" />
+              </div>
+              <p className="text-xs font-bold text-slate-650 text-slate-705 text-slate-600 uppercase tracking-wider">Lobby Screen Ready</p>
+              <p className="text-[11px] text-slate-500 leading-normal">
+                Press <strong>Resume Search</strong> to pair. Change your interests tags anytime.
+              </p>
             </div>
-            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Lobby Screen Ready</p>
-            <p className="text-xs text-slate-450 text-slate-500 leading-normal">
-              Press <strong>Resume Search</strong> to automatically pair. Change matching filters with the interests editor.
-            </p>
+            
+            {/* Dynamic Adsterra unit in Lobby area */}
+            <div className="flex flex-col items-center gap-1 py-1 text-center bg-white border border-slate-100 p-2 rounded-xl shadow-3xs max-w-[320px]">
+              <span className="text-[8px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
+              <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-lg shadow-2xs border border-slate-50" />
+            </div>
           </div>
         )}
 
