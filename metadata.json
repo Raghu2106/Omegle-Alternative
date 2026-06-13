@@ -1,0 +1,11 @@
+{
+  "name": "Omegle Alternative",
+  "description": "An anonymous real-time video and text chat alternative to Omegle with interest-based matching.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
