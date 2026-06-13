@@ -464,7 +464,7 @@ export default function App() {
     }`}>
       
       {/* Global Simple Navigation Bar */}
-      <nav id="app-navigation" className="bg-white border-b border-slate-100 px-6 py-2 md:py-3 flex items-center justify-between sticky top-0 z-50 shadow-2xs h-[110px] md:h-[110px] shrink-0">
+      <nav id="app-navigation" className="bg-white border-b border-slate-100 px-6 py-2 flex items-center justify-between sticky top-0 z-50 shadow-2xs h-[64px] lg:h-[110px] shrink-0">
         <div 
           onClick={handleStopMatch}
           className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none shrink-0"
@@ -481,11 +481,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Dynamic Horizontal Header Ad Placement */}
-        <div className="flex-grow flex items-center justify-center max-w-[280px] sm:max-w-[468px] lg:max-w-[728px] h-[90px] mx-2 sm:mx-4 relative overflow-hidden select-none">
-          <div className="scale-[0.55] xs:scale-[0.7] sm:scale-[0.85] md:scale-100 origin-center">
-            <AdContainer idKey="c7c1f20ab8894b1ce40d9f3165e0672a" width={728} height={90} className="border-0 bg-transparent" />
-          </div>
+        {/* Dynamic Horizontal Header Ad Placement - Desktop Only */}
+        <div className="hidden lg:flex flex-grow items-center justify-center max-w-[728px] h-[90px] mx-4 relative overflow-hidden select-none shrink-0">
+          <AdContainer idKey="c7c1f20ab8894b1ce40d9f3165e0672a" width={728} height={90} className="border-0 bg-transparent" />
         </div>
 
         {/* Global engagement & back action triggers */}
@@ -499,9 +497,23 @@ export default function App() {
         </div>
       </nav>
 
+      {/* Dynamic Sub-Header Ad for Mobile & Tablet */}
+      <div className="lg:hidden w-full bg-slate-50 border-b border-slate-100 flex items-center justify-center h-[50px] sm:h-[60px] shrink-0 overflow-hidden select-none">
+        <div className="flex items-center justify-center w-full">
+          {/* Tablet/Medium Screen: 468x60 */}
+          <div className="hidden sm:flex">
+            <AdContainer idKey="428201e65fcb073cf1d2a6d187355241" width={468} height={60} />
+          </div>
+          {/* Mobile/Small Screen: 320x50 */}
+          <div className="sm:hidden flex">
+            <AdContainer idKey="d97fe668211722603fa724cc0c714e5e" width={320} height={50} />
+          </div>
+        </div>
+      </div>
+
       {/* Main Container viewport */}
       <main className={`flex-grow flex-1 flex flex-col ${
-        appState === "landing" ? "min-h-[500px]" : "h-[calc(100vh-110px)] min-h-0 overflow-hidden"
+        appState === "landing" ? "min-h-[500px]" : "h-full min-h-0 overflow-hidden"
       }`}>
         <AnimatePresence mode="wait">          {appState === "landing" ? (
             <motion.div
@@ -514,16 +526,9 @@ export default function App() {
               className="flex-grow flex-1 w-full max-w-[1300px] mx-auto flex flex-row items-center justify-center py-8 px-4 gap-6"
             >
               {/* Left Skyscraper banner */}
-              <div className="hidden xl:flex flex-col items-center justify-between w-[160px] h-[600px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center p-4 select-none">
-                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Advertisement</span>
-                <div className="my-auto flex flex-col items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-700">Space Reserved</span>
-                  <span className="text-[10px] text-slate-450 leading-normal">Expand your brand with prime vertical ad placements here.</span>
-                </div>
-                <span className="text-[9px] font-mono text-slate-400 block">160 x 600</span>
+              <div className="hidden xl:flex flex-col items-center justify-start gap-1.5 w-[160px] h-[630px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center py-2 select-none relative overflow-hidden">
+                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
+                <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
 
               {/* Center Dashboard */}
@@ -748,39 +753,27 @@ export default function App() {
               </div>
 
               {/* Right Skyscraper banner */}
-              <div className="hidden xl:flex flex-col items-between justify-between w-[160px] h-[600px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center p-4 select-none">
-                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Advertisement</span>
-                <div className="my-auto flex flex-col items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-                    <Tv className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-700">Sponsored Ad</span>
-                  <span className="text-[10px] text-slate-450 leading-normal">Advertise contextual and community initiatives globally.</span>
-                </div>
-                <span className="text-[9px] font-mono text-slate-400 block">160 x 600</span>
+              <div className="hidden xl:flex flex-col items-center justify-start gap-1.5 w-[160px] h-[630px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center py-2 select-none relative overflow-hidden">
+                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
+                <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
             </motion.div>
           ) : (
             // Active Messaging Sandbox Stage with flanking Skyscraper Ads
-            <div className={`flex-grow flex-1 flex flex-row w-full max-w-[1720px] mx-auto h-[calc(100vh-69px)] min-h-0 overflow-hidden ${
+            <div className={`flex-grow flex-1 flex flex-row w-full max-w-[1720px] mx-auto h-full min-h-0 overflow-hidden ${
               mode === "video" ? "bg-slate-900" : "bg-slate-50"
             }`}>
 
               {/* Left Chat Ad Column */}
-              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-between justify-between w-[160px] h-full shrink-0 border-r p-4 text-center select-none ${
+              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-r py-3 select-none ${
                 mode === "video" 
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
-                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Advertisement</span>
-                <div className="my-auto flex flex-col items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${mode === "video" ? "bg-slate-800" : "bg-indigo-50 text-indigo-600"}`}>
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <span className="text-[10px] font-bold">Premium Sponsor</span>
-                  <span className="text-[10px] opacity-70 leading-normal">Promote your service here during matches.</span>
+                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Sponsored</span>
+                <div className="flex-grow flex items-center justify-center overflow-hidden w-full">
+                  <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
                 </div>
-                <span className="text-[9px] font-mono opacity-50 block">160 x 600</span>
               </div>
 
               {/* Central Messaging Sandbox Stage */}
@@ -832,20 +825,15 @@ export default function App() {
               </motion.div>
 
               {/* Right Chat Ad Column */}
-              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-between justify-between w-[160px] h-full shrink-0 border-l p-4 text-center select-none ${
+              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-l py-3 select-none ${
                 mode === "video" 
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
-                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Advertisement</span>
-                <div className="my-auto flex flex-col items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${mode === "video" ? "bg-slate-800" : "bg-indigo-50 text-indigo-600"}`}>
-                    <Tv className="w-4 h-4" />
-                  </div>
-                  <span className="text-[10px] font-bold">Ad Placement</span>
-                  <span className="text-[10px] opacity-70 leading-normal">High-performance vertical advertising.</span>
+                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Sponsored</span>
+                <div className="flex-grow flex items-center justify-center overflow-hidden w-full">
+                  <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
                 </div>
-                <span className="text-[9px] font-mono opacity-50 block">160 x 600</span>
               </div>
 
             </div>

@@ -24,6 +24,12 @@ async function startServer() {
     res.json({ status: "alive" });
   });
 
+  // Google Search Console Site Verification
+  app.get("/googledf42dccc48a95fea.html", (req, res) => {
+    res.type("text/html");
+    res.send("google-site-verification: googledf42dccc48a95fea.html");
+  });
+
   // Track online/searching users
   interface Searcher {
     socketId: string;
