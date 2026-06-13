@@ -59,6 +59,7 @@ export default function App() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const modeRef = useRef<"text" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
+  const signalQueueRef = useRef<{ candidate?: any; offer?: any; answer?: any }[]>([]);
 
   // Sync refs to avoid stale closures in socket events
   useEffect(() => {
@@ -99,6 +100,43 @@ export default function App() {
     }
   }, [appState, interests]);
 
+  // Process queued WebRTC signaling messages safely
+  const processSignalQueue = async () => {
+    const pc = pcRef.current;
+    if (!pc) return;
+
+    const queue = [...signalQueueRef.current];
+    signalQueueRef.current = [];
+
+    for (const signal of queue) {
+      try {
+        if (signal.offer) {
+          console.log("[WebRTC] Processing queued offer");
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socketRef.current?.emit("webrtc-signal", {
+            to: partnerIdRef.current || "",
+            signal: { answer }
+          });
+        } else if (signal.answer) {
+          console.log("[WebRTC] Processing queued answer");
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+        } else if (signal.candidate) {
+          if (pc.remoteDescription && pc.remoteDescription.type) {
+            console.log("[WebRTC] Processing queued candidate");
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } else {
+            // Re-queue candidate if remote desc is still not set
+            signalQueueRef.current.push(signal);
+          }
+        }
+      } catch (err) {
+        console.error("Error processing queued signaling item: ", err);
+      }
+    }
+  };
+
   // Lazy instantiate socket.io client
   const initSocketConnection = () => {
     if (socketRef.current) return;
@@ -118,6 +156,7 @@ export default function App() {
 
     // Match established callback
     socket.on("paired", async ({ peerId, initiator, commonInterests: common }) => {
+      partnerIdRef.current = peerId; // STABILIZE REF SYNCHRONOUSLY!
       setPartnerId(peerId);
       setCommonInterests(common);
       setAppState("paired");
@@ -155,9 +194,15 @@ export default function App() {
 
     // WebRTC signaling relay callback
     socket.on("webrtc-signal", async ({ from, signal }) => {
-      const pc = pcRef.current;
       const currentPartner = partnerIdRef.current;
-      if (!pc || from !== currentPartner) {
+      if (from !== currentPartner) {
+        return;
+      }
+
+      const pc = pcRef.current;
+      if (!pc) {
+        // Queue the signal if peer connection is not yet initialized
+        signalQueueRef.current.push(signal);
         return;
       }
 
@@ -170,10 +215,19 @@ export default function App() {
             to: from,
             signal: { answer }
           });
+          // Process queued items (like candidates)
+          await processSignalQueue();
         } else if (signal.answer) {
           await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+          // Process queued items (like candidates)
+          await processSignalQueue();
         } else if (signal.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          if (pc.remoteDescription && pc.remoteDescription.type) {
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } else {
+            // Queue candidate until remote description has been set
+            signalQueueRef.current.push(signal);
+          }
         }
       } catch (err) {
         console.error("WebRTC Signaling Error: ", err);
@@ -234,39 +288,53 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 645 },
-          height: { ideal: 485 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           facingMode: "user"
         },
         audio: true
       });
+      localStreamRef.current = stream;
       setLocalStream(stream);
       setCameraActive(true);
       setMicActive(true);
       return stream;
     } catch (err) {
-      console.warn("High-quality media stream denied, attempting video-only/voice fallbacks...", err);
+      console.warn("High-quality media stream denied, attempting standard video+audio fallback...", err);
       try {
-        // Fallback 1: Video-only if microphone is blocked or missing
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStreamRef.current = stream;
         setLocalStream(stream);
         setCameraActive(true);
-        setMicActive(false);
+        setMicActive(true);
         return stream;
-      } catch (err2) {
+      } catch (err15) {
+        console.warn("Standard video+audio fallback failed, attempting video-only/voice fallbacks...", err15);
         try {
-          // Fallback 2: Audio-only if webcam is blocked or missing
-          const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          // Fallback 1: Video-only if microphone is blocked or missing
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          localStreamRef.current = stream;
           setLocalStream(stream);
-          setCameraActive(false);
-          setMicActive(true);
-          return stream;
-        } catch (err3) {
-          console.error("All camera and microphone hardware tracks denied entirely.", err3);
-          setLocalStream(null);
-          setCameraActive(false);
+          setCameraActive(true);
           setMicActive(false);
-          return null;
+          return stream;
+        } catch (err2) {
+          try {
+            // Fallback 2: Audio-only if webcam is blocked or missing
+            const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            localStreamRef.current = stream;
+            setLocalStream(stream);
+            setCameraActive(false);
+            setMicActive(true);
+            return stream;
+          } catch (err3) {
+            console.error("All camera and microphone hardware tracks denied entirely.", err3);
+            localStreamRef.current = null;
+            setLocalStream(null);
+            setCameraActive(false);
+            setMicActive(false);
+            return null;
+          }
         }
       }
     } finally {
@@ -275,6 +343,10 @@ export default function App() {
   };
 
   const stopLocalMediaStream = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
     if (localStream) {
       localStream.getTracks().forEach((track) => track.stop());
       setLocalStream(null);
@@ -347,6 +419,9 @@ export default function App() {
       }
     };
 
+    // Immediately process any queued signaling signals that arrived before PeerConnection was fully constructed
+    await processSignalQueue();
+
     // Initiator peer drafts offer SDP
     if (isInitiator) {
       try {
@@ -367,11 +442,17 @@ export default function App() {
 
   const cleanPeerConnection = () => {
     if (pcRef.current) {
-      pcRef.current.close();
+      try {
+        pcRef.current.close();
+      } catch (e) {
+        console.warn("Error closing PeerConnection", e);
+      }
       pcRef.current = null;
     }
     setRemoteStream(null);
+    partnerIdRef.current = null;
     setPartnerId(null);
+    signalQueueRef.current = []; // Reset queue
   };
 
   // Interest list management
@@ -462,7 +543,7 @@ export default function App() {
 
   // Live client-side texting proxy
   const handleSendMessage = (text: string) => {
-    if (!partnerId) return;
+    if (!partnerIdRef.current) return;
     addMessage("you", text);
     socketRef.current?.emit("chat-message", { text });
     trackEvent("send_message", { 
@@ -473,7 +554,7 @@ export default function App() {
   };
 
   const handleTypingStatus = (isTyping: boolean) => {
-    if (!partnerId) return;
+    if (!partnerIdRef.current) return;
     socketRef.current?.emit("typing", { isTyping });
   };
 
@@ -829,7 +910,7 @@ export default function App() {
               >
                 {/* Media pane (left column: custom video feed, only shown in video mode!) */}
                 {mode === "video" && (
-                  <div className="h-1/2 md:h-full">
+                  <div className="h-1/2 md:h-full min-h-0 overflow-hidden flex flex-col">
                     <VideoPlayer
                       localStream={localStream}
                       remoteStream={remoteStream}

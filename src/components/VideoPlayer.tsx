@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor, Maximize2, Minimize2 } from "lucide-react";
 
 interface VideoPlayerProps {
   localStream: MediaStream | null;
@@ -27,9 +27,75 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
   const [layoutMode, setLayoutMode] = useState<"grid" | "enlarged" | "pip">("grid");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isVirtualFullscreen, setIsVirtualFullscreen] = useState(false);
+
+  // Monitor browser fullscreen state change
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(active);
+      if (!active) {
+        setIsVirtualFullscreen(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
+
+    if (isVirtualFullscreen) {
+      setIsVirtualFullscreen(false);
+      return;
+    }
+
+    try {
+      if (!document.fullscreenElement && 
+          !(document as any).webkitFullscreenElement && 
+          !(document as any).mozFullScreenElement && 
+          !(document as any).msFullscreenElement) {
+        const req = containerRef.current.requestFullscreen || 
+                    (containerRef.current as any).webkitRequestFullscreen || 
+                    (containerRef.current as any).mozRequestFullScreen ||
+                    (containerRef.current as any).msRequestFullscreen;
+        if (req) {
+          await req.call(containerRef.current);
+        } else {
+          setIsVirtualFullscreen(true);
+        }
+      } else {
+        const exit = document.exitFullscreen || 
+                     (document as any).webkitExitFullscreen || 
+                     (document as any).mozCancelFullScreen ||
+                     (document as any).msExitFullscreen;
+        if (exit) {
+          await exit.call(document);
+        }
+      }
+    } catch (err) {
+      console.warn("Standard Fullscreen API failed or blocked (e.g. inside sandboxed workspace iframe). Falling back to Virtual Fullscreen overlay.", err);
+      setIsVirtualFullscreen(true);
+    }
+  };
 
   // Automatically start with PiP mode on mobile and tablet screens for optimal visual space
   useEffect(() => {
@@ -86,18 +152,26 @@ export default function VideoPlayer({
 
   // Choose container class list helper based on layout preference
   const getContainerClassName = () => {
+    let classes = "";
     if (layoutMode === "grid") {
-      return "relative flex flex-col md:grid md:grid-rows-2 gap-3 h-full p-3 bg-slate-900 border-r border-slate-800";
+      // Stacked: Up and Down
+      classes = "relative grid grid-rows-2 gap-3 h-full max-h-full p-3 bg-slate-900 border-r border-slate-800 min-h-0 overflow-hidden";
+    } else if (layoutMode === "enlarged") {
+      // Side by Side
+      classes = "relative grid grid-cols-2 gap-3 h-full max-h-full p-3 bg-slate-900 border-r border-slate-800 min-h-0 overflow-hidden";
+    } else {
+      // "pip" overlay mode
+      classes = "relative flex flex-col h-full max-h-full p-3 bg-slate-900 border-r border-slate-800 min-h-0 overflow-hidden";
     }
-    if (layoutMode === "enlarged") {
-      return "relative flex flex-col md:grid md:grid-cols-2 gap-3 h-full p-3 bg-slate-900 border-r border-slate-800";
+
+    if (isVirtualFullscreen) {
+      classes += " !fixed !inset-0 !w-screen !h-screen !z-[9999] !p-6 !bg-slate-950 !rounded-none !border-none";
     }
-    // "pip" overlay mode
-    return "relative flex flex-col h-full p-3 bg-slate-900 border-r border-slate-800";
+    return classes;
   };
 
   return (
-    <div className={getContainerClassName()}>
+    <div ref={containerRef} className={getContainerClassName()}>
       
       {/* Floating Layout Selector HUD Tag */}
       <div className="absolute top-4 right-4 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-1 flex items-center gap-1 shadow-xl">
@@ -109,10 +183,10 @@ export default function VideoPlayer({
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           }`}
-          title="Equal Split (Stacked)"
+          title="Equal Split (Up and Down)"
         >
           <Layers className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Stacked</span>
+          <span className="hidden sm:inline">Up and Down</span>
         </button>
         <button
           type="button"
@@ -122,7 +196,7 @@ export default function VideoPlayer({
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           }`}
-          title="Side-by-Side Columns View"
+          title="Side-by-Side View"
         >
           <Grid className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Side-by-Side</span>
@@ -135,25 +209,26 @@ export default function VideoPlayer({
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           }`}
-          title="Picture-in-Picture (Local Overlay)"
+          title="Overlay (PIP)"
         >
           <Monitor className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Overlay (PiP)</span>
+          <span className="hidden sm:inline">Overlay (PIP)</span>
         </button>
       </div>
 
       {/* STRANGER VIEW BLOCK */}
       <div 
-        className={`relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all ${
-          layoutMode === "pip" 
-            ? "w-full h-full" 
-            : "flex-1"
-        }`}
+        className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
         {isPaired && remoteStream ? (
           <video
             id="remote-video"
-            ref={remoteVideoRef}
+            ref={(el) => {
+              remoteVideoRef.current = el;
+              if (el && el.srcObject !== remoteStream) {
+                el.srcObject = remoteStream;
+              }
+            }}
             autoPlay
             playsInline
             className="w-full h-full object-contain bg-slate-950"
@@ -195,17 +270,29 @@ export default function VideoPlayer({
       </div>
 
       {/* LOCAL USER VIEW BLOCK */}
-      <div 
-        className={`transition-all overflow-hidden bg-slate-950 flex items-center justify-center ${
+      <motion.div 
+        key={layoutMode}
+        drag={layoutMode === "pip"}
+        dragConstraints={containerRef}
+        dragElastic={0.05}
+        dragMomentum={false}
+        whileHover={layoutMode === "pip" ? { scale: 1.05 } : {}}
+        whileTap={layoutMode === "pip" ? { scale: 1.02, cursor: "grabbing" } : {}}
+        className={`overflow-hidden bg-slate-950 flex items-center justify-center ${
           layoutMode === "pip"
-            ? "absolute bottom-3 right-3 w-20 h-28 sm:bottom-4 sm:right-4 sm:w-32 sm:h-44 md:bottom-6 md:right-6 md:w-40 md:h-52 rounded-2xl border-2 border-white/90 shadow-2xl z-30 transform hover:scale-105 transition-all duration-300"
-            : "relative flex-1 rounded-2xl border border-slate-800"
+            ? "absolute bottom-3 right-3 w-24 h-36 sm:bottom-4 sm:right-4 sm:w-32 sm:h-44 md:bottom-6 md:right-6 md:w-40 md:h-52 rounded-2xl border-2 border-white/90 shadow-2xl z-30 cursor-grab"
+            : "relative w-full h-full min-h-0 rounded-2xl border border-slate-800"
         }`}
       >
         {localStream && cameraActive ? (
           <video
             id="local-video"
-            ref={localVideoRef}
+            ref={(el) => {
+              localVideoRef.current = el;
+              if (el && el.srcObject !== localStream) {
+                el.srcObject = localStream;
+              }
+            }}
             autoPlay
             playsInline
             muted
@@ -262,6 +349,22 @@ export default function VideoPlayer({
             {cameraActive ? <Camera className="w-3.5 h-3.5" /> : <CameraOff className="w-3.5 h-3.5" />}
           </button>
         </div>
+      </motion.div>
+
+      {/* Floating Action: Fullscreen Toggle (Bottom Right) */}
+      <div className="absolute bottom-4 right-4 z-[45] flex items-center justify-center">
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="flex items-center justify-center bg-slate-950/90 hover:bg-indigo-600 active:scale-95 border border-slate-800 hover:border-indigo-500 rounded-xl p-2.5 text-slate-300 hover:text-white shadow-2xl transition-all cursor-pointer backdrop-blur-md"
+          title={(isFullscreen || isVirtualFullscreen) ? "Exit Fullscreen" : "Enter Fullscreen"}
+        >
+          {(isFullscreen || isVirtualFullscreen) ? (
+            <Minimize2 className="w-4 h-4" />
+          ) : (
+            <Maximize2 className="w-4 h-4" />
+          )}
+        </button>
       </div>
 
       {/* Global CSS for camera mirrors */}
