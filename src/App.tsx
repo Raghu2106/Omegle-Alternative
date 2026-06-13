@@ -459,11 +459,13 @@ export default function App() {
           className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none"
           title="Return to home page"
         >
-          <div className="h-9 w-9 bg-linear-to-tr from-indigo-600 to-sky-500 rounded-xl flex items-center justify-center text-white font-extrabold tracking-tighter text-lg shadow-sm">
-            Ω
+          <div className="h-9 w-9 bg-linear-to-tr from-sky-400 via-indigo-500 to-emerald-400 rounded-xl flex items-center justify-center text-white font-extrabold tracking-tighter text-lg shadow-md relative overflow-hidden">
+            <span className="rotate-180 inline-block transform scale-110">Ω</span>
+            <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-emerald-300 rounded-full animate-ping" />
+            <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
           </div>
           <div>
-            <h1 className="text-sm font-extrabold tracking-tight text-slate-900 uppercase">Omegle Alternative</h1>
+            <h1 className="text-sm font-extrabold tracking-tight text-slate-900 uppercase">Umegle</h1>
             <p className="text-[10px] text-slate-450 font-medium tracking-wide">Secure interest-based video chat</p>
           </div>
         </div>
@@ -483,8 +485,7 @@ export default function App() {
       <main className={`flex-grow flex-1 flex flex-col ${
         appState === "landing" ? "min-h-[500px]" : "h-[calc(100vh-69px)] min-h-0 overflow-hidden"
       }`}>
-        <AnimatePresence mode="wait">
-          {appState === "landing" ? (
+        <AnimatePresence mode="wait">          {appState === "landing" ? (
             <motion.div
               id="landing-dashboard"
               key="landing"
@@ -492,9 +493,23 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.25, ease: "easeOut" }}
-              className="flex-1 flex items-center justify-center py-8 px-4"
+              className="flex-grow flex-1 w-full max-w-[1300px] mx-auto flex flex-row items-center justify-center py-8 px-4 gap-6"
             >
-              <div className="w-full max-w-4xl grid md:grid-cols-5 gap-6">
+              {/* Left Skyscraper banner */}
+              <div className="hidden xl:flex flex-col items-center justify-between w-[160px] h-[600px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center p-4 select-none">
+                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Advertisement</span>
+                <div className="my-auto flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-700">Space Reserved</span>
+                  <span className="text-[10px] text-slate-450 leading-normal">Expand your brand with prime vertical ad placements here.</span>
+                </div>
+                <span className="text-[9px] font-mono text-slate-400 block">160 x 600</span>
+              </div>
+
+              {/* Center Dashboard */}
+              <div className="flex-grow max-w-4xl grid md:grid-cols-5 gap-6">
                 
                 {/* Left Columns - Welcome and Preferences configs */}
                 <div className="md:col-span-3 space-y-6">
@@ -506,7 +521,7 @@ export default function App() {
                       Talk to strangers, <span className="text-linear bg-linear-to-r from-indigo-600 to-sky-500 bg-clip-text text-transparent">completely free.</span>
                     </h2>
                     <p className="text-sm text-slate-500 leading-relaxed max-w-lg">
-                      Omegle Alternative pairs you instantly with peer companions worldwide. Filter matches by adding custom tag keywords to search for shared interests.
+                      Umegle pairs you instantly with peer companions worldwide. Filter matches by adding custom tag keywords to search for shared interests.
                     </p>
                   </div>
 
@@ -707,55 +722,109 @@ export default function App() {
                 </div>
 
               </div>
-            </motion.div>
-          ) : (
-            // Active Messaging Sandbox Stage (Text grid or Video split)
-            <motion.div
-              id="active-sandbox-stage"
-              key="sandbox"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50" : "flex-1 h-full w-full grid md:grid-cols-2 outline-hidden bg-slate-900"}
-            >
-              {/* Media pane (left column: custom video feed, only shown in video mode!) */}
-              {mode === "video" && (
-                <div className="h-1/2 md:h-full">
-                  <VideoPlayer
-                    localStream={localStream}
-                    remoteStream={remoteStream}
-                    isSearching={appState === "searching"}
-                    isPaired={appState === "paired"}
-                    cameraActive={cameraActive}
-                    micActive={micActive}
-                    onToggleCamera={handleToggleCamera}
-                    onToggleMic={handleToggleMic}
-                    mode={mode}
-                  />
-                </div>
-              )}
 
-              {/* Chat pane (right column or full width depending on mode) */}
-              <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50" : "h-1/2 md:h-full border-t md:border-t-0 border-slate-200"}>
-                <ChatPanel
-                  messages={messages}
-                  isSearching={appState === "searching"}
-                  isPaired={appState === "paired"}
-                  commonInterests={commonInterests}
-                  strangerIsTyping={strangerIsTyping}
-                  onSendMessage={handleSendMessage}
-                  onSkip={handleSkipMatch}
-                  onStop={handleStopMatch}
-                  onTyping={handleTypingStatus}
-                  interests={interests}
-                  onAddInterest={addInterest}
-                  onRemoveInterest={removeInterest}
-                  autoConnect={autoConnect}
-                  onToggleAutoConnect={() => setAutoConnect(prev => !prev)}
-                  onPause={handlePauseMatch}
-                />
+              {/* Right Skyscraper banner */}
+              <div className="hidden xl:flex flex-col items-between justify-between w-[160px] h-[600px] shrink-0 border border-slate-200 bg-white rounded-2xl shadow-xs text-center p-4 select-none">
+                <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Advertisement</span>
+                <div className="my-auto flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                    <Tv className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-700">Sponsored Ad</span>
+                  <span className="text-[10px] text-slate-450 leading-normal">Advertise contextual and community initiatives globally.</span>
+                </div>
+                <span className="text-[9px] font-mono text-slate-400 block">160 x 600</span>
               </div>
             </motion.div>
+          ) : (
+            // Active Messaging Sandbox Stage with flanking Skyscraper Ads
+            <div className={`flex-grow flex-1 flex flex-row w-full max-w-[1720px] mx-auto h-[calc(100vh-69px)] min-h-0 overflow-hidden ${
+              mode === "video" ? "bg-slate-900" : "bg-slate-50"
+            }`}>
+
+              {/* Left Chat Ad Column */}
+              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-between justify-between w-[160px] h-full shrink-0 border-r p-4 text-center select-none ${
+                mode === "video" 
+                  ? "bg-slate-950 border-slate-800 text-slate-400" 
+                  : "bg-white border-slate-100 text-slate-600"
+              }`}>
+                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Advertisement</span>
+                <div className="my-auto flex flex-col items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${mode === "video" ? "bg-slate-800" : "bg-indigo-50 text-indigo-600"}`}>
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold">Premium Sponsor</span>
+                  <span className="text-[10px] opacity-70 leading-normal">Promote your service here during matches.</span>
+                </div>
+                <span className="text-[9px] font-mono opacity-50 block">160 x 600</span>
+              </div>
+
+              {/* Central Messaging Sandbox Stage */}
+              <motion.div
+                id="active-sandbox-stage"
+                key="sandbox"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50" : "flex-grow flex-1 h-full w-full grid md:grid-cols-2 outline-hidden bg-slate-900"}
+              >
+                {/* Media pane (left column: custom video feed, only shown in video mode!) */}
+                {mode === "video" && (
+                  <div className="h-1/2 md:h-full">
+                    <VideoPlayer
+                      localStream={localStream}
+                      remoteStream={remoteStream}
+                      isSearching={appState === "searching"}
+                      isPaired={appState === "paired"}
+                      cameraActive={cameraActive}
+                      micActive={micActive}
+                      onToggleCamera={handleToggleCamera}
+                      onToggleMic={handleToggleMic}
+                      mode={mode}
+                    />
+                  </div>
+                )}
+
+                {/* Chat pane (right column or full width depending on mode) */}
+                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50" : "h-1/2 md:h-full border-t md:border-t-0 border-slate-250/30"}>
+                  <ChatPanel
+                    messages={messages}
+                    isSearching={appState === "searching"}
+                    isPaired={appState === "paired"}
+                    commonInterests={commonInterests}
+                    strangerIsTyping={strangerIsTyping}
+                    onSendMessage={handleSendMessage}
+                    onSkip={handleSkipMatch}
+                    onStop={handleStopMatch}
+                    onTyping={handleTypingStatus}
+                    interests={interests}
+                    onAddInterest={addInterest}
+                    onRemoveInterest={removeInterest}
+                    autoConnect={autoConnect}
+                    onToggleAutoConnect={() => setAutoConnect(prev => !prev)}
+                    onPause={handlePauseMatch}
+                  />
+                </div>
+              </motion.div>
+
+              {/* Right Chat Ad Column */}
+              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-between justify-between w-[160px] h-full shrink-0 border-l p-4 text-center select-none ${
+                mode === "video" 
+                  ? "bg-slate-950 border-slate-800 text-slate-400" 
+                  : "bg-white border-slate-100 text-slate-600"
+              }`}>
+                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Advertisement</span>
+                <div className="my-auto flex flex-col items-center gap-2">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${mode === "video" ? "bg-slate-800" : "bg-indigo-50 text-indigo-600"}`}>
+                    <Tv className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold">Ad Placement</span>
+                  <span className="text-[10px] opacity-70 leading-normal">High-performance vertical advertising.</span>
+                </div>
+                <span className="text-[9px] font-mono opacity-50 block">160 x 600</span>
+              </div>
+
+            </div>
           )}
         </AnimatePresence>
       </main>
