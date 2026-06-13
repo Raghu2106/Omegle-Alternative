@@ -1,5 +1,6 @@
 import express from "express";
 import http from "http";
+import https from "https";
 import path from "path";
 import { Server } from "socket.io";
 import { createServer as createViteServer } from "vite";
@@ -247,6 +248,28 @@ async function startServer() {
 
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`[Server] Listening on http://localhost:${PORT}`);
+
+    // Self-ping to stay awake on Render's free tier (every 14 minutes)
+    const pingTargets = [
+      process.env.RENDER_EXTERNAL_URL,
+      "https://umegle.fun",
+      "https://umegle-ilhp.onrender.com"
+    ].filter((url): url is string => !!url); // Filter out falsy/undefined
+
+    const uniquePingTargets = Array.from(new Set(pingTargets));
+    console.log(`[Self-Ping] Configured targets to stay awake:`, uniquePingTargets);
+
+    setInterval(() => {
+      uniquePingTargets.forEach((baseUrl) => {
+        const url = `${baseUrl.replace(/\/$/, "")}/api/health`;
+        console.log(`[Self-Ping] Sending heartbeats to keep container warm: ${url}`);
+        https.get(url, (res) => {
+          console.log(`[Self-Ping] Ping response code from ${url}: ${res.statusCode}`);
+        }).on("error", (err) => {
+          console.error(`[Self-Ping] Error pinging ${url}:`, err.message);
+        });
+      });
+    }, 14 * 60 * 1000); // 14 minutes
   });
 }
 
