@@ -86,6 +86,16 @@ export default function App() {
     localStreamRef.current = localStream;
   }, [localStream]);
 
+  // Handle client-side interest priority fallback messaging
+  useEffect(() => {
+    if (appState === "searching" && interests.length > 0) {
+      const timer = setTimeout(() => {
+        addSystemMessage("No common interest partner found within 5 seconds. Widening search to all online strangers...");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [appState, interests]);
+
   // Lazy instantiate socket.io client
   const initSocketConnection = () => {
     if (socketRef.current) return;
@@ -475,7 +485,7 @@ export default function App() {
           <div className="flex items-center gap-2 bg-[#f4f7f6] border border-slate-200/50 px-3.5 py-1.5 rounded-full shadow-xs">
             <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
             <span className="text-xs font-mono font-semibold text-slate-700">
-              {onlineCount ? onlineCount : "..."} Connected strangers
+              {onlineCount ? onlineCount : "..."} Strangers online
             </span>
           </div>
         </div>

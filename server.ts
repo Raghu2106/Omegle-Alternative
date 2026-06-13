@@ -16,7 +16,7 @@ async function startServer() {
     }
   });
 
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Simple health probe
   app.get("/api/health", (req, res) => {
@@ -29,10 +29,101 @@ async function startServer() {
     interests: string[];
     mode: "text" | "video";
     socket: any;
+    joinedAt: number; // For tracking the 5-second interest priority grace period
   }
 
   let searchingPool: Searcher[] = [];
   const activePairs = new Map<string, string>(); // socketId -> strangerSocketId
+
+  // Helper: Verify if two searchers can pair up based on interests and timelines
+  function areEligible(userA: Searcher, userB: Searcher): boolean {
+    if (userA.socketId === userB.socketId) return false;
+    if (userA.mode !== userB.mode) return false;
+
+    // Check if they share at least one common interest
+    const common = userA.interests.filter(i => userB.interests.includes(i));
+    if (common.length > 0) {
+      return true; // Match with common interest is allowed at any time!
+    }
+
+    // Otherwise, both must be ready for a random match (no interests, or elapsed >= 5000ms)
+    const now = Date.now();
+    const userAReady = userA.interests.length === 0 || (now - userA.joinedAt >= 5000);
+    const userBReady = userB.interests.length === 0 || (now - userB.joinedAt >= 5000);
+
+    return userAReady && userBReady;
+  }
+
+  // Find the single best eligible match for a user in the pool
+  function findMatch(user: Searcher): Searcher | null {
+    const candidates = searchingPool.filter(c => areEligible(user, c));
+    if (candidates.length === 0) return null;
+
+    // Prioritize common interest matching first!
+    const commonInterestCandidates = candidates.filter(c => {
+      const common = user.interests.filter(i => c.interests.includes(i));
+      return common.length > 0;
+    });
+
+    if (commonInterestCandidates.length > 0) {
+      let bestMatch = commonInterestCandidates[0];
+      let maxIntersection = 0;
+      for (const cand of commonInterestCandidates) {
+        const common = user.interests.filter(i => cand.interests.includes(i));
+        if (common.length > maxIntersection) {
+          maxIntersection = common.length;
+          bestMatch = cand;
+        }
+      }
+      return bestMatch;
+    }
+
+    // Otherwise, pick the eligible candidate who has been waiting the longest (oldest joinedAt)
+    const sorted = [...candidates].sort((a, b) => a.joinedAt - b.joinedAt);
+    return sorted[0];
+  }
+
+  // Active matchmaking sweep
+  function sweepMatchmaking() {
+    let i = 0;
+    while (i < searchingPool.length) {
+      const user = searchingPool[i];
+      const match = findMatch(user);
+      if (match) {
+        // Remove both from search pool
+        searchingPool = searchingPool.filter(
+          s => s.socketId !== user.socketId && s.socketId !== match.socketId
+        );
+
+        // Bind pairs
+        activePairs.set(user.socketId, match.socketId);
+        activePairs.set(match.socketId, user.socketId);
+
+        const commonInterests = user.interests.filter(item =>
+          match.interests.includes(item)
+        );
+
+        // Notify both parties
+        user.socket.emit("paired", {
+          peerId: match.socketId,
+          initiator: true,
+          commonInterests
+        });
+
+        match.socket.emit("paired", {
+          peerId: user.socketId,
+          initiator: false,
+          commonInterests
+        });
+
+        console.log(`[Sweep Match] Paired ${user.socketId} with ${match.socketId} on ${user.mode} mode. Common interests: ${commonInterests}`);
+        // Reset index to start after pool mutations
+        i = 0;
+      } else {
+        i++;
+      }
+    }
+  }
 
   io.on("connection", (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
@@ -71,77 +162,27 @@ async function startServer() {
         socketId: socket.id,
         interests: normalizedInterests,
         mode,
-        socket
+        socket,
+        joinedAt: Date.now()
       };
 
-      // Matchmaker logic
-      const match = findMatch(userObject);
+      // Add to search pool
+      searchingPool.push(userObject);
+      socket.emit("searching", { interests: normalizedInterests });
+      console.log(`[Search] Listed ${socket.id} in pool for ${mode}. interests: ${normalizedInterests}`);
 
-      if (match) {
-        // Remove partner from search pool
-        searchingPool = searchingPool.filter(s => s.socketId !== match.socketId);
-
-        // Bind pairs
-        activePairs.set(socket.id, match.socketId);
-        activePairs.set(match.socketId, socket.id);
-
-        const commonInterests = userObject.interests.filter(i =>
-          match.interests.includes(i)
-        );
-
-        // Peer-A (Initiator) matches and will fire WebRTC offer
-        socket.emit("paired", {
-          peerId: match.socketId,
-          initiator: true,
-          commonInterests
-        });
-
-        // Peer-B (Receiver) matches and will receive offer
-        match.socket.emit("paired", {
-          peerId: socket.id,
-          initiator: false,
-          commonInterests
-        });
-
-        console.log(`[Match] Paired Initiator ${socket.id} with Guest ${match.socketId} on ${mode} mode.`);
-      } else {
-        // No match found immediately, place in searching pool
-        searchingPool.push(userObject);
-        socket.emit("searching", { interests: normalizedInterests });
-        console.log(`[Search] Listed ${socket.id} in pool for ${mode}. interests: ${normalizedInterests}`);
-      }
-    });
-
-    // Helper: Select suitable stranger based on common interests first, or oldest wait time
-    function findMatch(user: Searcher): Searcher | null {
-      const candidates = searchingPool.filter(
-        c => c.socketId !== user.socketId && c.mode === user.mode
-      );
-      if (candidates.length === 0) return null;
-
-      let bestMatch: Searcher | null = null;
-      let maxIntersection = 0;
-
-      // 1. Try to find the candidate with the highest overlap of interests
-      if (user.interests.length > 0) {
-        for (const cand of candidates) {
-          if (cand.interests.length > 0) {
-            const common = user.interests.filter(i => cand.interests.includes(i));
-            if (common.length > maxIntersection) {
-              maxIntersection = common.length;
-              bestMatch = cand;
-            }
-          }
+      // Fallback timer: If no common-interest match completed within 5 seconds, run sweep which permits random fallback
+      setTimeout(() => {
+        const stillSearching = searchingPool.find(s => s.socketId === socket.id);
+        if (stillSearching) {
+          console.log(`[TimeoutFallback] 5s elapsed for ${socket.id}. Executing fallback sweep.`);
+          sweepMatchmaking();
         }
-      }
+      }, 5050);
 
-      if (bestMatch) {
-        return bestMatch;
-      }
-
-      // 2. Base case: fall back to the user who has been waiting longest (index 0)
-      return candidates[0];
-    }
+      // Trigger matchmaking sweep immediately
+      sweepMatchmaking();
+    });
 
     // Stop matching search
     socket.on("stop-search", () => {
