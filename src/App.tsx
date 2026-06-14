@@ -145,18 +145,43 @@ export default function App() {
 
         try {
           if (signal.offer) {
-            console.log("[WebRTC Queue] Processing offer from:", from);
+            console.log("[SIGNALING] Processing offer from:", from);
             let activePc = pcRef.current;
             // If the responder's PeerConnection is failed, disconnected, or closed, we recreate it before applying
             if (!activePc || activePc.connectionState === "failed" || activePc.connectionState === "disconnected" || activePc.connectionState === "closed") {
-              console.log("[WebRTC Queue] Receiver's PeerConnection is stale/failed. Re-instantiating responder connection before applying offer...");
+              console.log("[WEBRTC] Receiver's PeerConnection is stale/failed. Re-instantiating responder connection before applying offer...");
               await initiateWebRTCPeer(from, false);
               activePc = pcRef.current;
             }
             if (activePc) {
-              await activePc.setRemoteDescription(signal.offer);
-              const answer = await activePc.createAnswer();
-              await activePc.setLocalDescription(answer);
+              console.log("[SIGNALING] Calling setRemoteDescription with remote offer");
+              try {
+                await activePc.setRemoteDescription(signal.offer);
+                console.log("[SIGNALING] setRemoteDescription (offer) succeeded");
+              } catch (err) {
+                console.error("[SIGNALING] setRemoteDescription (offer) failed:", err);
+                throw err;
+              }
+
+              console.log("[SIGNALING] Calling createAnswer");
+              let answer;
+              try {
+                answer = await activePc.createAnswer();
+                console.log("[SIGNALING] createAnswer succeeded:", answer);
+              } catch (err) {
+                console.error("[SIGNALING] createAnswer failed:", err);
+                throw err;
+              }
+
+              console.log("[SIGNALING] Calling setLocalDescription with generated answer");
+              try {
+                await activePc.setLocalDescription(answer);
+                console.log("[SIGNALING] setLocalDescription (answer) succeeded");
+              } catch (err) {
+                console.error("[SIGNALING] setLocalDescription (answer) failed:", err);
+                throw err;
+              }
+
               socketRef.current?.emit("webrtc-signal", {
                 to: from,
                 signal: { answer }
@@ -164,64 +189,97 @@ export default function App() {
 
               // Process any stored candidates that were received before remote description was set
               if (pendingRemoteCandidatesRef.current.length > 0) {
-                console.log("[WebRTC Queue] Remote description set (offer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
+                console.log("[ICE] Remote description set (offer). Loading stored candidates count:", pendingRemoteCandidatesRef.current.length);
                 for (const cand of pendingRemoteCandidatesRef.current) {
+                  const storedCandType = cand.candidate && cand.candidate.includes("typ")
+                    ? (cand.candidate.match(/typ\s+(\w+)/)?.[1] || "unknown")
+                    : "unknown";
                   try {
+                    console.log(`[ICE] Calling addIceCandidate for stored remote candidate | type: ${storedCandType} | candidate: "${cand.candidate}"`);
                     await activePc.addIceCandidate(new RTCIceCandidate(cand));
+                    console.log(`[ICE] addIceCandidate (stored candidate) succeeded for type "${storedCandType}"`);
                   } catch (candidateErr) {
-                    console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+                    console.error(`[ICE] Error calling addIceCandidate for stored candidate of type "${storedCandType}":`, candidateErr);
                   }
                 }
                 pendingRemoteCandidatesRef.current = [];
               }
             }
           } else if (signal.answer) {
-            console.log("[WebRTC Queue] Processing answer from:", from);
+            console.log("[SIGNALING] Processing answer from:", from);
             if (pc) {
-              await pc.setRemoteDescription(signal.answer);
+              console.log("[SIGNALING] Calling setRemoteDescription with remote answer");
+              try {
+                await pc.setRemoteDescription(signal.answer);
+                console.log("[SIGNALING] setRemoteDescription (answer) succeeded");
+              } catch (err) {
+                console.error("[SIGNALING] setRemoteDescription (answer) failed:", err);
+                throw err;
+              }
 
               // Process any stored candidates that were received before remote description was set
               if (pendingRemoteCandidatesRef.current.length > 0) {
-                console.log("[WebRTC Queue] Remote description set (answer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
+                console.log("[ICE] Remote description set (answer). Loading stored candidates count:", pendingRemoteCandidatesRef.current.length);
                 for (const cand of pendingRemoteCandidatesRef.current) {
+                  const storedCandType = cand.candidate && cand.candidate.includes("typ")
+                    ? (cand.candidate.match(/typ\s+(\w+)/)?.[1] || "unknown")
+                    : "unknown";
                   try {
+                    console.log(`[ICE] Calling addIceCandidate for stored remote candidate | type: ${storedCandType} | candidate: "${cand.candidate}"`);
                     await pc.addIceCandidate(new RTCIceCandidate(cand));
+                    console.log(`[ICE] addIceCandidate (stored candidate) succeeded for type "${storedCandType}"`);
                   } catch (candidateErr) {
-                    console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+                    console.error(`[ICE] Error calling addIceCandidate for stored candidate of type "${storedCandType}":`, candidateErr);
                   }
                 }
                 pendingRemoteCandidatesRef.current = [];
               }
             }
           } else if (signal.requestOffer) {
-            console.log("[WebRTC Queue] Peer requested progressive SDP offer/renegotiate.");
+            console.log("[SIGNALING] Peer requested progressive SDP offer/renegotiate.");
             if (isInitiatorRef.current) {
               let activePc = pcRef.current;
               // If the initiator's PeerConnection is failed/stale, recreate it to provide a clean offer
               if (!activePc || activePc.connectionState === "failed" || activePc.connectionState === "disconnected" || activePc.connectionState === "closed") {
-                console.log("[WebRTC Queue] Initiator's PeerConnection is failed/stale. Re-initiating peer connection first...");
+                console.log("[WEBRTC] Initiator's PeerConnection is failed/stale. Re-initiating peer connection first...");
                 await initiateWebRTCPeer(from, true);
                 activePc = pcRef.current;
               }
               if (activePc) {
                 try {
+                  console.log("[SIGNALING] Calling createOffer due to requestOffer petition");
                   const offer = await activePc.createOffer();
+                  console.log("[SIGNALING] createOffer succeeded:", offer);
+                  
+                  console.log("[SIGNALING] Calling setLocalDescription with generated offer");
                   await activePc.setLocalDescription(offer);
+                  console.log("[SIGNALING] setLocalDescription (offer) succeeded");
+
                   socketRef.current?.emit("webrtc-signal", {
                     to: from,
                     signal: { offer }
                   });
                 } catch (err) {
-                  console.error("[WebRTC] Failed to generate requestOffer SDP:", err);
+                  console.error("[SIGNALING] Failed to generate/negotiate offer during requestOffer process:", err);
                 }
               }
             }
           } else if (signal.candidate) {
+            const candType = signal.candidate.candidate && signal.candidate.candidate.includes("typ")
+              ? (signal.candidate.candidate.match(/typ\s+(\w+)/)?.[1] || "unknown")
+              : "unknown";
+            
             if (pc.remoteDescription && pc.remoteDescription.type) {
-              console.log("[WebRTC Queue] Adding ICE candidate from:", from);
-              await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+              console.log(`[ICE] Attempting to add incoming ICE candidate from ${from} | type: ${candType} | ip: ${signal.candidate.address || "unknown"} | port: ${signal.candidate.port || "unknown"}`);
+              try {
+                console.log(`[ICE] Calling addIceCandidate for type "${candType}" | candidate: "${signal.candidate.candidate}"`);
+                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                console.log(`[ICE] Successfully added remote ICE candidate (${candType})`);
+              } catch (candidateErr) {
+                console.error(`[ICE] Error calling addIceCandidate dynamically for type "${candType}":`, candidateErr, "\nCandidate content:", signal.candidate);
+              }
             } else {
-              console.log("[WebRTC Queue] Storing raw ICE candidate to process post RemoteDescription establish:", signal.candidate);
+              console.log(`[ICE] RemoteDescription not yet set. Storing incoming "${candType}" ICE candidate in pending queue.`);
               pendingRemoteCandidatesRef.current.push(signal.candidate);
             }
           }
@@ -500,65 +558,98 @@ export default function App() {
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
 
-    // Standard STUN & robust open TURN/TURNS servers to handle symmetric NAT and cellular/firewall traversals
+    // Configure STUN/TURN servers. Support dynamic production TURN configuration via environment variables
+    const customIceServers: RTCIceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+      { urls: "stun:openrelay.metered.ca:80" },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:3478",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:3478?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turns:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
+    ];
+
+    const envTurnUrl = (import.meta as any).env.VITE_TURN_URL;
+    const envTurnUser = (import.meta as any).env.VITE_TURN_USERNAME;
+    const envTurnCred = (import.meta as any).env.VITE_TURN_CREDENTIAL;
+
+    if (envTurnUrl) {
+      console.log("[WebRTC] Injecting custom high-authority TURN server configurations from system env:", envTurnUrl);
+      const customSvr: RTCIceServer = {
+        urls: envTurnUrl,
+      };
+      if (envTurnUser) customSvr.username = envTurnUser;
+      if (envTurnCred) customSvr.credential = envTurnCred;
+      
+      // Place at the very top of iceServers array to prioritize it
+      customIceServers.unshift(customSvr);
+    } else {
+      console.warn("[WebRTC] No dedicated VITE_TURN_URL configured. Falling back to public metered.ca open relay credentials.");
+    }
+
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-        { urls: "stun:openrelay.metered.ca:80" },
-        {
-          urls: "turn:openrelay.metered.ca:80",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:443",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:3478",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:443?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:3478?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turns:openrelay.metered.ca:443?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        }
-      ]
+      iceServers: customIceServers
     });
 
     pcRef.current = pc;
 
     // Monitor WebRTC states
     pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
+      console.log(`[ICE] ICE Connection State changed to: ${pc.iceConnectionState}`);
       setWebrtcStatus(pc.iceConnectionState);
       if (pc.iceConnectionState === "failed") {
-        console.warn("[WebRTC] ICE Connection failed. Triggering ICE restart...");
+        console.warn("[ICE] ICE Connection failed. Triggering ICE restart...");
         handleIceRestart(peerSocketId, isInitiator);
       }
     };
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
+      console.log(`[WEBRTC] PeerConnection State changed to: ${pc.connectionState}`);
       setWebrtcStatus(pc.connectionState);
     };
     pc.onsignalingstatechange = () => {
-      console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
+      console.log(`[SIGNALING] Signaling State changed to: ${pc.signalingState}`);
+    };
+    pc.onicegatheringstatechange = () => {
+      console.log(`[ICE] ICE Gathering State changed to: ${pc.iceGatheringState}`);
+    };
+
+    // Listen to ICE candidate gathering errors (e.g. TURN allocation / 701 errors)
+    pc.onicecandidateerror = (event: any) => {
+      console.error(
+        `%c[TURN] [ICE] onicecandidateerror: errorCode=${event.errorCode} | ` +
+        `errorText="${event.errorText}" | ` +
+        `failingUrl="${event.url || "unknown"}"`,
+        "color: #ff0055; font-weight: bold; font-family: monospace; font-size: 11px;"
+      );
     };
 
     // Attach local stream tracks to WebRTC pipe
@@ -575,14 +666,14 @@ export default function App() {
         pc.addTransceiver("audio", { direction: "recvonly" });
         pc.addTransceiver("video", { direction: "recvonly" });
       } catch (err) {
-        console.warn("[WebRTC] Failed to add recvonly transceivers:", err);
+        console.warn("[WEBRTC] Failed to add recvonly transceivers:", err);
       }
       addSystemMessage("Joining without active camera feed.");
     }
 
     // Handle receiving incoming track with high-availability track merging
     pc.ontrack = (event) => {
-      console.log("[WebRTC] Track detected:", event.track, event.streams);
+      console.log(`[WEBRTC] ontrack callback triggered: Kind="${event.track.kind}" | ID="${event.track.id}" | StreamsLength=${event.streams?.length || 0}`);
       
       if (event.streams && event.streams[0]) {
         const inboundStream = event.streams[0];
@@ -594,7 +685,7 @@ export default function App() {
 
         // Bind listeners to trigger updates if the browser adds another track (e.g. video following audio) dynamically
         inboundStream.onaddtrack = (trackEvent) => {
-          console.log("[WebRTC] Dynamic track added to active stranger stream:", trackEvent.track.kind);
+          console.log(`[WEBRTC] Dynamic track added to active stranger stream: kind="${trackEvent.track.kind}"`);
           setRemoteStream(new MediaStream(inboundStream.getTracks()));
           setRemoteStreamVersion((v) => v + 1);
         };
@@ -623,11 +714,21 @@ export default function App() {
 
     // Forward gathered ICE candidates to paired stranger
     pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        socketRef.current.emit("webrtc-signal", {
-          to: peerSocketId,
-          signal: { candidate: event.candidate }
-        });
+      if (event.candidate) {
+        // Robust regex to extract the candidate type (host, srflx, or relay)
+        const candidateStr = event.candidate.candidate;
+        const typeMatch = candidateStr.match(/typ\s+(\w+)/);
+        const candidateType = typeMatch ? typeMatch[1] : "unknown";
+        console.log(`[ICE] onicecandidate gathered: type=${candidateType} | ip=${event.candidate.address || "unknown"} | port=${event.candidate.port || "unknown"} | sdp="${candidateStr}"`);
+
+        if (socketRef.current) {
+          socketRef.current.emit("webrtc-signal", {
+            to: peerSocketId,
+            signal: { candidate: event.candidate }
+          });
+        }
+      } else {
+        console.log("[ICE] onicecandidate: ICE gathering completed (null candidate received).");
       }
     };
 
@@ -637,17 +738,23 @@ export default function App() {
     // Initiator peer drafts offer SDP
     if (isInitiator) {
       try {
+        console.log("[SIGNALING] Initiator: Calling createOffer");
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true
         });
+        console.log("[SIGNALING] Initiator: createOffer succeeded:", offer);
+        
+        console.log("[SIGNALING] Initiator: Calling setLocalDescription");
         await pc.setLocalDescription(offer);
+        console.log("[SIGNALING] Initiator: setLocalDescription success");
+
         socketRef.current?.emit("webrtc-signal", {
           to: peerSocketId,
           signal: { offer }
         });
       } catch (err) {
-        console.error("Failed to create SDP offer:", err);
+        console.error("[SIGNALING] Initiator: Failed to create/set local SDP offer:", err);
       }
     }
   };
