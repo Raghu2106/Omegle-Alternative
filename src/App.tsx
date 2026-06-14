@@ -32,6 +32,14 @@ export default function App() {
   const [interestInput, setInterestInput] = useState("");
   const [mode, setMode] = useState<"text" | "video">("text");
   const [autoConnect, setAutoConnect] = useState<boolean>(true);
+  const [isInsideIframe, setIsInsideIframe] = useState(false);
+
+  useEffect(() => {
+    setIsInsideIframe(
+      typeof window !== "undefined" && 
+      window.self !== window.top
+    );
+  }, []);
 
   // Multi-user & Pairing state machine
   const [appState, setAppState] = useState<AppState>("landing");
@@ -860,19 +868,26 @@ export default function App() {
                         <div 
                           id="mode-option-video"
                           onClick={() => setMode("video")}
-                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3.5 select-none ${
+                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col gap-3 select-none ${
                             mode === "video" 
                               ? "border-indigo-600 bg-indigo-50/20" 
                               : "border-slate-100 hover:border-slate-200 bg-slate-50/50"
                           }`}
                         >
-                          <div className={`p-2.5 rounded-lg shrink-0 ${mode === "video" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
-                            <Video className="w-5 h-5" />
+                          <div className="flex items-start gap-3.5">
+                            <div className={`p-2.5 rounded-lg shrink-0 ${mode === "video" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
+                              <Video className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Webcam Video & Voice</h4>
+                              <p className="text-[11px] text-slate-500 leading-normal">Enable webcam audio & video dynamically with high quality WebRTC tunnels.</p>
+                            </div>
                           </div>
-                          <div className="space-y-0.5">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Webcam Video & Voice</h4>
-                            <p className="text-[11px] text-slate-500 leading-normal">Enable webcam audio & video dynamically with high quality WebRTC tunnels.</p>
-                          </div>
+                          {isInsideIframe && (
+                            <div className="bg-amber-500/10 border border-amber-500/25 px-3 py-2 rounded-lg text-[10px] text-amber-700 leading-relaxed font-bold">
+                              ⚠️ Sandbox restriction detected. Real-time video/audio chat requires visiting this app directly in a full secure browser tab.
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -953,19 +968,36 @@ export default function App() {
                     </div>
 
                     {/* Massive matching start trigger button */}
-                    <button
-                      id="btn-start-matching"
-                      onClick={handleStartMatching}
-                      disabled={!agreedToTerms}
-                      className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
-                        agreedToTerms
-                          ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-805 hover:shadow-lg"
-                          : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200"
-                      }`}
-                    >
-                      <span>Start Chatting</span>
-                      <Sparkles className="w-4 h-4 text-sky-300" />
-                    </button>
+                    {isInsideIframe && mode === "video" ? (
+                      <a
+                        id="btn-start-matching-tab"
+                        href={typeof window !== "undefined" ? window.location.href : "#"}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 select-none text-center ${
+                          agreedToTerms
+                            ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:shadow-lg"
+                            : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200 pointer-events-none"
+                        }`}
+                      >
+                        <span>Open in New Tab for Video ↗</span>
+                        <Sparkles className="w-4 h-4 text-sky-300 animate-pulse" />
+                      </a>
+                    ) : (
+                      <button
+                        id="btn-start-matching"
+                        onClick={handleStartMatching}
+                        disabled={!agreedToTerms}
+                        className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                          agreedToTerms
+                            ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-805 hover:shadow-lg"
+                            : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200"
+                        }`}
+                      >
+                        <span>Start Chatting</span>
+                        <Sparkles className="w-4 h-4 text-sky-300" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Safety & Encryption warning card */}

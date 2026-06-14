@@ -45,6 +45,14 @@ export default function VideoPlayer({
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [userHasInteracted, setUserHasInteracted] = useState(false);
   const [showLocalControls, setShowLocalControls] = useState(false);
+  const [isInsideIframe, setIsInsideIframe] = useState(false);
+
+  useEffect(() => {
+    setIsInsideIframe(
+      typeof window !== "undefined" && 
+      window.self !== window.top
+    );
+  }, []);
 
   const handleRecoverAutoplay = () => {
     setUserHasInteracted(true);
@@ -251,6 +259,24 @@ export default function VideoPlayer({
 
   return (
     <div ref={containerRef} className={getContainerClassName()}>
+      
+      {/* Floating Iframe Restrictions Alert Bar */}
+      {isInsideIframe && (
+        <div className="absolute top-14 left-2 right-12 sm:top-[68px] sm:left-4 sm:right-16 z-[45] bg-amber-500/95 backdrop-blur-md text-white text-[10px] sm:text-xs font-bold px-3 py-2 rounded-xl flex items-center justify-between shadow-2xl border border-amber-600/30 gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="shrink-0">⚠️</span>
+            <span className="truncate">Sandbox restricted. Video calls require a direct secure tab.</span>
+          </div>
+          <a
+            href={typeof window !== "undefined" ? window.location.href : "#"}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="shrink-0 bg-white hover:bg-slate-50 text-amber-700 font-extrabold px-2.5 py-1 rounded-lg text-[9px] sm:text-[10px] uppercase tracking-wider shadow-sm transition-all text-center select-none cursor-pointer"
+          >
+            Open New Tab ↗
+          </a>
+        </div>
+      )}
       
       {/* Floating Layout Selector HUD Tag */}
       <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 flex items-center gap-0.5 shadow-xl">
@@ -558,9 +584,8 @@ export default function VideoPlayer({
       {/* Global CSS for camera mirrors */}
       <style>{`
         .mirror-mode {
-          transform: rotateY(180deg) translateZ(0);
-          -webkit-transform: rotateY(180deg) translateZ(0);
-          backface-visibility: hidden;
+          transform: scaleX(-1);
+          -webkit-transform: scaleX(-1);
           will-change: transform;
         }
       `}</style>
