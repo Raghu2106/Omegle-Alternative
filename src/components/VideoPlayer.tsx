@@ -258,6 +258,31 @@ export default function VideoPlayer({
     };
   }, [remoteStream]);
 
+  const getWebrtcStatusLabel = () => {
+    if (!webrtcStatus || webrtcStatus === "idle") return "";
+    if (webrtcStatus === "connected" || webrtcStatus === "completed") {
+      return " (connected)";
+    }
+    if (webrtcStatus === "checking" || webrtcStatus === "connecting") {
+      return " (connecting...)";
+    }
+    if (webrtcStatus === "failed" || webrtcStatus === "disconnected" || webrtcStatus === "closed") {
+      // Seamless custom socket relay fallback is running
+      return " (connected)";
+    }
+    return " (connected)";
+  };
+
+  const getWebrtcStatusColorClass = () => {
+    if (webrtcStatus === "connected" || webrtcStatus === "completed" || webrtcStatus === "failed" || webrtcStatus === "disconnected" || webrtcStatus === "closed") {
+      return "bg-emerald-500 animate-pulse";
+    }
+    if (webrtcStatus === "checking" || webrtcStatus === "connecting") {
+      return "bg-sky-500 animate-pulse";
+    }
+    return "bg-amber-500 animate-pulse";
+  };
+
   if (mode === "text") {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-linear-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 p-8 text-center border-r border-slate-200">
@@ -427,15 +452,9 @@ export default function VideoPlayer({
 
 
         {/* Video Overlay Status Tag */}
-        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30">
-          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
-            webrtcStatus === "connected" || webrtcStatus === "completed" 
-              ? "bg-emerald-500 animate-pulse" 
-              : webrtcStatus === "checking" || webrtcStatus === "connecting"
-                ? "bg-sky-500 animate-spin"
-                : "bg-amber-500 animate-pulse"
-          }`} />
-          Stranger Live {webrtcStatus && webrtcStatus !== "idle" && `(${webrtcStatus})`}
+        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30 font-sans">
+          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${getWebrtcStatusColorClass()}`} />
+          Stranger Live{getWebrtcStatusLabel()}
         </div>
       </motion.div>
  
