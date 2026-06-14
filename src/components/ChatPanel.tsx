@@ -125,51 +125,63 @@ export default function ChatPanel({
   }, [isPaired, isSearching]);
 
   return (
-    <div className="flex flex-col h-full bg-[#fcfdfd]" id="widget-chat-panel">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[#fcfdfd]" id="widget-chat-panel">
       
       {/* Upper header with Match Details & Auto-connect / Pause options */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-3 border-b border-slate-100 bg-white gap-2 shadow-2xs">
+      <div className="flex flex-row items-center justify-between px-2.5 py-2 sm:px-4 sm:py-3 border-b border-slate-100 bg-white gap-2 shadow-2xs shrink-0 select-none">
         
         {/* Connection status container */}
-        <div className="flex items-center gap-2">
-          <div className={`w-2.5 h-2.5 rounded-full ${
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2.5 rounded-full ${
             isPaired 
               ? "bg-emerald-500 animate-pulse" 
               : isSearching 
-                ? "bg-indigo-505 bg-indigo-500 animate-pulse" 
+                ? "bg-indigo-500 animate-pulse" 
                 : "bg-amber-400"
           }`} />
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-            {isPaired 
-              ? "Talking to stranger" 
-              : isSearching 
-                ? "Matching pool..." 
-                : "Match Lobby Paused"}
+          <h2 className="text-[9px] sm:text-[10px] lg:text-xs font-bold uppercase tracking-wider text-slate-800">
+            {isPaired ? (
+              <>
+                <span className="lg:hidden">Stranger</span>
+                <span className="hidden lg:inline">Talking to stranger</span>
+              </>
+            ) : isSearching ? (
+              <>
+                <span className="lg:hidden">Matching...</span>
+                <span className="hidden lg:inline">Matching pool...</span>
+              </>
+            ) : (
+              <>
+                <span className="lg:hidden">Paused</span>
+                <span className="hidden lg:inline">Match Lobby Paused</span>
+              </>
+            )}
           </h2>
         </div>
         
-        {/* Interests Overlay if matched */}
+        {/* Interests Overlay if matched - show on tablets/desktops */}
         {isPaired && commonInterests.length > 0 && (
-          <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100/50 px-2.5 py-0.5 rounded-md text-[11px] text-indigo-700">
+          <div className="hidden lg:flex items-center gap-1.5 bg-indigo-50 border border-indigo-100/50 px-2 py-0.5 rounded-md text-[10px] text-indigo-700">
             <Sparkles className="w-3 h-3 text-indigo-500" />
             <span className="font-semibold">Tags:</span>
-            <span className="font-medium truncate max-w-[150px]">{commonInterests.join(", ")}</span>
+            <span className="font-medium truncate max-w-[120px]">{commonInterests.join(", ")}</span>
           </div>
         )}
 
         {/* Global toggles and back to dashboard option */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           
           {/* Unsolicited auto load pause toggle */}
-          <label className="flex items-center gap-2 bg-slate-50 border border-slate-205 border-slate-200/70 px-2.5 py-1 rounded-lg select-none cursor-pointer hover:bg-slate-100 transition-colors">
+          <label className="flex items-center gap-1 bg-slate-50 border border-slate-200/70 px-1 py-0.5 sm:px-2 sm:py-1 rounded-md sm:rounded-lg select-none cursor-pointer hover:bg-slate-100 transition-colors">
             <input
               type="checkbox"
               checked={autoConnect}
               onChange={onToggleAutoConnect}
-              className="h-3.5 w-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 transition-colors cursor-pointer"
+              className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 transition-colors cursor-pointer"
             />
-            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-              Auto-Connect Next
+            <span className="text-[8px] sm:text-[9px] lg:text-[10px] font-bold text-slate-600 uppercase tracking-widest leading-none">
+              <span className="lg:hidden">Auto</span>
+              <span className="hidden lg:inline">Auto-Connect Next</span>
             </span>
           </label>
 
@@ -177,9 +189,10 @@ export default function ChatPanel({
             id="btn-exit-lobby"
             type="button"
             onClick={onStop}
-            className="text-[10px] font-bold text-rose-600 hover:text-white hover:bg-rose-600 px-2.5 py-1.5 rounded-lg border border-rose-150 transition-all uppercase tracking-wider bg-transparent"
+            className="text-[8px] sm:text-[9px] lg:text-[10px] font-extrabold text-rose-600 hover:text-white hover:bg-rose-600 px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-md sm:rounded-lg border border-rose-200 hover:border-rose-600 transition-all uppercase tracking-wider bg-transparent shrink-0"
           >
-            Exit to Home
+            <span className="lg:hidden">Exit</span>
+            <span className="hidden lg:inline">Exit to Home</span>
           </button>
         </div>
       </div>
@@ -187,7 +200,7 @@ export default function ChatPanel({
       {/* Main Messages Container */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-5 py-6 space-y-4 scrollbar-thin scrollbar-thumb-slate-200"
+        className="flex-1 min-h-0 overflow-y-auto px-3 py-3 sm:px-5 sm:py-6 space-y-3 sm:space-y-4 scrollbar-thin scrollbar-thumb-slate-200 bg-[#fcfdfd]"
       >
         {/* Dynamic Pause / Lobby Manager Panel */}
         {!isSearching && !isPaired && (
@@ -352,8 +365,8 @@ export default function ChatPanel({
       </div>
 
       {/* Message and matching interface */}
-      <div className="p-4 border-t border-slate-100 bg-white shadow-md">
-        <form onSubmit={handleFormSubmit} className="flex gap-3 items-start">
+      <div className="p-2 sm:p-4 border-t border-slate-100 bg-white shadow-md shrink-0">
+        <form onSubmit={handleFormSubmit} className="flex gap-2 sm:gap-3 items-start">
           
           {/* Stop / Search Trigger control column */}
           <div className="flex flex-col items-center shrink-0">
@@ -362,7 +375,7 @@ export default function ChatPanel({
                 id="btn-shortcut-skip"
                 type="button"
                 onClick={triggerSkipAction}
-                className={`px-3 py-3.5 h-[52px] w-[112px] rounded-xl font-extrabold transition-all flex items-center justify-center shrink-0 uppercase tracking-widest text-[11px] select-none shadow-xs text-center ${
+                className={`px-2 py-1 h-[42px] w-[84px] sm:h-[52px] sm:w-[112px] rounded-lg sm:rounded-xl font-extrabold transition-all flex items-center justify-center shrink-0 uppercase tracking-widest text-[10px] sm:text-[11px] select-none shadow-xs text-center ${
                   confirmStop
                     ? "bg-rose-600 hover:bg-rose-700 text-white animate-pulse"
                     : isSearching 
@@ -377,7 +390,7 @@ export default function ChatPanel({
                 id="btn-shortcut-start"
                 type="button"
                 onClick={onSkip}
-                className="px-3 py-3.5 h-[52px] w-[112px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold transition-all flex items-center justify-center shrink-0 uppercase tracking-widest text-[11px] shadow-xs text-center"
+                className="px-2 py-1 h-[42px] w-[84px] sm:h-[52px] sm:w-[112px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg sm:rounded-xl font-extrabold transition-all flex items-center justify-center shrink-0 uppercase tracking-widest text-[10px] sm:text-[11px] shadow-xs text-center"
               >
                 Connect
               </button>
@@ -385,25 +398,25 @@ export default function ChatPanel({
           </div>
 
           {/* Chat text box */}
-          <div className="relative flex-1 flex h-[52px]">
+          <div className="relative flex-1 flex h-[42px] sm:h-[52px]">
             <input
               id="input-text-message"
               type="text"
               autoFocus
               disabled={!isPaired}
-              placeholder={isPaired ? "Type your message to stranger here..." : "Match lobby paused. Connect to chat..."}
+              placeholder={isPaired ? "Type your message..." : "Match paused. Connect..."}
               value={inputText}
               onChange={handleInputChange}
-              className="w-full h-full pl-4 pr-12 rounded-xl bg-slate-50 border border-slate-200 shadow-inner text-sm font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-600/25 focus:border-indigo-600 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+              className="w-full h-full pl-3 sm:pl-4 pr-10 sm:pr-12 rounded-lg sm:rounded-xl bg-slate-50 border border-slate-200 shadow-inner text-xs sm:text-sm font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-600/25 focus:border-indigo-600 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
             />
             
             <button
               id="btn-submit-message"
               type="submit"
               disabled={!isPaired || !inputText.trim()}
-              className="absolute right-2 top-1.5 p-2 h-9 w-9 bg-indigo-600 rounded-lg hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
+              className="absolute right-1 sm:right-2 top-1 sm:top-1.5 p-1.5 sm:p-2 h-8 w-8 sm:h-9 sm:w-9 bg-indigo-600 rounded-md sm:rounded-lg hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
-              <Send className="w-4 h-4" />
+              <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
         </form>

@@ -30,10 +30,16 @@ export default function VideoPlayer({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
-  const [layoutMode, setLayoutMode] = useState<"grid" | "enlarged" | "pip">("grid");
+  const [layoutMode, setLayoutMode] = useState<"grid" | "enlarged" | "pip">(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 1024 ? "pip" : "grid";
+    }
+    return "grid";
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVirtualFullscreen, setIsVirtualFullscreen] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [showLocalControls, setShowLocalControls] = useState(false);
 
   const handleRecoverAutoplay = () => {
     if (remoteVideoRef.current) {
@@ -112,9 +118,14 @@ export default function VideoPlayer({
 
   // Automatically start with PiP mode on mobile and tablet screens for optimal visual space
   useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) {
-      setLayoutMode("pip");
-    }
+    const handleResize = () => {
+      if (typeof window !== "undefined" && window.innerWidth < 1024) {
+        setLayoutMode("pip");
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   // Keep references updated
@@ -178,17 +189,17 @@ export default function VideoPlayer({
     let classes = "";
     if (layoutMode === "grid") {
       // Stacked: Up and Down
-      classes = "relative grid grid-rows-2 gap-3 h-full max-h-full p-3 bg-slate-900 border-r border-slate-800 min-h-0 overflow-hidden";
+      classes = "relative grid grid-rows-2 gap-2 h-full max-h-full p-1.5 sm:p-3 bg-slate-900 border-r border-slate-800/60 min-h-0 overflow-hidden";
     } else if (layoutMode === "enlarged") {
       // Side by Side
-      classes = "relative grid grid-cols-2 gap-3 h-full max-h-full p-3 bg-slate-900 border-r border-slate-800 min-h-0 overflow-hidden";
+      classes = "relative grid grid-cols-2 gap-2 h-full max-h-full p-1.5 sm:p-3 bg-slate-900 border-r border-slate-800/60 min-h-0 overflow-hidden";
     } else {
       // "pip" overlay mode
-      classes = "relative flex flex-col h-full max-h-full p-3 bg-slate-900 border-r border-slate-800 min-h-0 overflow-hidden";
+      classes = "relative flex flex-col h-full max-h-full p-1.5 sm:p-3 bg-slate-900 border-r border-slate-800/60 min-h-0 overflow-hidden";
     }
 
     if (isVirtualFullscreen) {
-      classes += " !fixed !inset-0 !w-screen !h-screen !z-[9999] !p-6 !bg-slate-950 !rounded-none !border-none";
+      classes += " !fixed !inset-0 !w-screen !h-screen !z-[9999] !p-4 sm:p-6 !bg-slate-950 !rounded-none !border-none";
     }
     return classes;
   };
@@ -197,7 +208,7 @@ export default function VideoPlayer({
     <div ref={containerRef} className={getContainerClassName()}>
       
       {/* Floating Layout Selector HUD Tag */}
-      <div className="absolute top-4 right-4 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-1 flex items-center gap-1 shadow-xl">
+      <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 sm:p-1 hidden lg:flex items-center gap-0.5 sm:gap-1 shadow-xl">
         <button
           type="button"
           onClick={() => setLayoutMode("grid")}
@@ -310,8 +321,8 @@ export default function VideoPlayer({
         )}
 
         {/* Video Overlay Status Tag */}
-        <div className="absolute top-4 left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-xs px-2.5 py-1 rounded-full text-slate-200 flex items-center gap-1.5 font-medium shadow-xs z-30">
-          <span className={`w-2 h-2 rounded-full ${isPaired ? "bg-emerald-500 animate-pulse" : "bg-amber-500 animate-pulse"}`} />
+        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30">
+          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${isPaired ? "bg-emerald-500 animate-pulse" : "bg-amber-500 animate-pulse"}`} />
           Stranger Live
         </div>
       </div>
@@ -323,11 +334,12 @@ export default function VideoPlayer({
         dragConstraints={containerRef}
         dragElastic={0.05}
         dragMomentum={false}
+        onClick={() => setShowLocalControls((prev) => !prev)}
         whileHover={layoutMode === "pip" ? { scale: 1.05 } : {}}
         whileTap={layoutMode === "pip" ? { scale: 1.02, cursor: "grabbing" } : {}}
-        className={`overflow-hidden bg-slate-950 flex items-center justify-center ${
+        className={`group overflow-hidden bg-slate-950 flex items-center justify-center cursor-pointer transition-all ${
           layoutMode === "pip"
-            ? "absolute bottom-3 right-3 w-24 h-36 sm:bottom-4 sm:right-4 sm:w-32 sm:h-44 md:bottom-6 md:right-6 md:w-40 md:h-52 rounded-2xl border-2 border-white/90 shadow-2xl z-30 cursor-grab"
+            ? "absolute bottom-1.5 right-1.5 w-20 h-28 sm:bottom-4 sm:right-4 sm:w-32 sm:h-44 md:bottom-6 md:right-6 md:w-40 md:h-52 rounded-2xl border border-white/95 shadow-2xl z-30 cursor-grab"
             : "relative w-full h-full min-h-0 rounded-2xl border border-slate-800"
         }`}
       >
@@ -357,43 +369,60 @@ export default function VideoPlayer({
         )}
 
         {/* Your Overlay Tag */}
-        <div className={`absolute left-3 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] px-2 py-0.5 rounded-full text-slate-300 flex items-center gap-1 font-medium shadow-xs z-30 ${
+        <div className={`absolute left-3 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] px-2 py-0.5 rounded-full text-slate-300 flex items-center gap-1 font-medium shadow-xs z-30 transition-all duration-300 ${
           layoutMode === "pip" ? "top-2" : "top-3"
+        } ${
+          showLocalControls 
+            ? "opacity-95 scale-100" 
+            : "opacity-45 md:opacity-25 group-hover:opacity-95 pointer-events-none group-hover:pointer-events-auto scale-95 group-hover:scale-100"
         }`}>
           <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
           You <span className="hidden sm:inline"> (Self stream)</span>
         </div>
 
         {/* Media Option Controls Bar - floating inside your window if grid, or bottom HUD in PIP */}
-        <div className={`absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/90 backdrop-blur-lg px-2.5 py-1 rounded-full border border-slate-800 shadow-md z-30 ${
-          layoutMode === "pip" ? "scale-90" : ""
-        }`}>
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-950/95 backdrop-blur-lg px-2 py-0.5 rounded-full border border-slate-800 shadow-md z-30 transition-all duration-300 ${
+            layoutMode === "pip" ? "scale-85" : "sm:scale-100"
+          } ${
+            showLocalControls 
+              ? "opacity-100 scale-100" 
+              : "opacity-0 md:opacity-10 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto scale-90 group-hover:scale-100"
+          }`}
+        >
           <button
             id="btn-toggle-mic"
             type="button"
-            onClick={onToggleMic}
-            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMic();
+            }}
+            className={`p-1 sm:p-1.5 rounded-full transition-colors cursor-pointer ${
               micActive
                 ? "bg-slate-800 hover:bg-slate-700 text-slate-100"
-                : "bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium hover:bg-rose-500/35"
+                : "bg-rose-500/25 text-rose-400 border border-rose-500/30 font-medium hover:bg-rose-500/35"
             }`}
             title={micActive ? "Mute Microphone" : "Unmute Microphone"}
           >
-            {micActive ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+            {micActive ? <Mic className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <MicOff className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
           </button>
 
           <button
             id="btn-toggle-camera"
             type="button"
-            onClick={onToggleCamera}
-            className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCamera();
+            }}
+            className={`p-1 sm:p-1.5 rounded-full transition-colors cursor-pointer ${
               cameraActive
                 ? "bg-slate-800 hover:bg-slate-700 text-slate-100"
-                : "bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium hover:bg-rose-500/35"
+                : "bg-rose-500/25 text-rose-400 border border-rose-500/30 font-medium hover:bg-rose-500/35"
             }`}
             title={cameraActive ? "Disable Camera" : "Enable Camera"}
           >
-            {cameraActive ? <Camera className="w-3.5 h-3.5" /> : <CameraOff className="w-3.5 h-3.5" />}
+            {cameraActive ? <Camera className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <CameraOff className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
           </button>
         </div>
       </motion.div>

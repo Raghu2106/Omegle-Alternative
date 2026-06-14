@@ -651,7 +651,7 @@ export default function App() {
 
       {/* Main Container viewport */}
       <main className={`flex-grow flex-1 flex flex-col ${
-        appState === "landing" ? "min-h-[500px]" : "min-h-0 overflow-hidden"
+        appState === "landing" ? "min-h-[500px]" : "h-0 min-h-0 overflow-hidden"
       }`}>
         <AnimatePresence mode="wait">          {appState === "landing" ? (
             <motion.div
@@ -917,11 +917,11 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50" : "flex-grow flex-1 h-full w-full grid md:grid-cols-2 outline-hidden bg-slate-900"}
+                className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-full w-full relative flex flex-col lg:grid lg:grid-cols-2 outline-hidden bg-slate-900 min-h-0 overflow-hidden"}
               >
                 {/* Media pane (left column: custom video feed, only shown in video mode!) */}
                 {mode === "video" && (
-                  <div className="h-1/2 md:h-full min-h-0 overflow-hidden flex flex-col">
+                  <div className="w-[124px] h-[174px] sm:w-[160px] sm:h-[224px] lg:h-full lg:w-full absolute top-[52px] sm:top-[68px] right-2 sm:right-4 z-40 rounded-2xl overflow-hidden shadow-xl border border-slate-800 lg:relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none flex flex-col shrink-0 min-h-0">
                     <VideoPlayer
                       localStream={localStream}
                       remoteStream={remoteStream}
@@ -937,7 +937,7 @@ export default function App() {
                 )}
 
                 {/* Chat pane (right column or full width depending on mode) */}
-                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50" : "h-1/2 md:h-full border-t md:border-t-0 border-slate-250/30"}>
+                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "h-full w-full flex flex-col min-h-0 overflow-hidden"}>
                   <ChatPanel
                     messages={messages}
                     isSearching={appState === "searching"}
