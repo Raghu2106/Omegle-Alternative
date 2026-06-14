@@ -12,6 +12,7 @@ interface VideoPlayerProps {
   onToggleCamera: () => void;
   onToggleMic: () => void;
   mode: "text" | "video";
+  webrtcStatus?: string;
 }
 
 export default function VideoPlayer({
@@ -24,6 +25,7 @@ export default function VideoPlayer({
   onToggleCamera,
   onToggleMic,
   mode,
+  webrtcStatus,
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -133,7 +135,12 @@ export default function VideoPlayer({
   // Keep references updated
   useEffect(() => {
     if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
+      if (localVideoRef.current.srcObject !== localStream) {
+        localVideoRef.current.srcObject = localStream;
+      }
+      localVideoRef.current.play().catch((err) => {
+        console.warn("[VideoPlayer] Local video play failed: ", err);
+      });
     }
   }, [localStream, layoutMode, cameraActive]);
 
@@ -291,8 +298,20 @@ export default function VideoPlayer({
             id="remote-video"
             ref={(el) => {
               remoteVideoRef.current = el;
-              if (el && el.srcObject !== remoteStream) {
-                el.srcObject = remoteStream;
+              if (el) {
+                if (el.srcObject !== remoteStream) {
+                  el.srcObject = remoteStream;
+                }
+                el.play()
+                  .then(() => {
+                    setAutoplayBlocked(false);
+                  })
+                  .catch((err) => {
+                    console.warn("[RemoteVideoRef] play failed:", err);
+                    if (!userHasInteracted) {
+                      setAutoplayBlocked(true);
+                    }
+                  });
               }
             }}
             autoPlay
@@ -354,8 +373,14 @@ export default function VideoPlayer({
 
         {/* Video Overlay Status Tag */}
         <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30">
-          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${isPaired ? "bg-emerald-500 animate-pulse" : "bg-amber-500 animate-pulse"}`} />
-          Stranger Live
+          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
+            webrtcStatus === "connected" || webrtcStatus === "completed" 
+              ? "bg-emerald-500 animate-pulse" 
+              : webrtcStatus === "checking" || webrtcStatus === "connecting"
+                ? "bg-sky-500 animate-spin"
+                : "bg-amber-500 animate-pulse"
+          }`} />
+          Stranger Live {webrtcStatus && webrtcStatus !== "idle" && `(${webrtcStatus})`}
         </div>
       </div>
 
@@ -380,8 +405,13 @@ export default function VideoPlayer({
             id="local-video"
             ref={(el) => {
               localVideoRef.current = el;
-              if (el && el.srcObject !== localStream) {
-                el.srcObject = localStream;
+              if (el) {
+                if (el.srcObject !== localStream) {
+                  el.srcObject = localStream;
+                }
+                el.play().catch((err) => {
+                  console.warn("[LocalVideoRef] play failed:", err);
+                });
               }
             }}
             autoPlay

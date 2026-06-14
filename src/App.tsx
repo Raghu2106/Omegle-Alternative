@@ -52,6 +52,7 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
   const [isStreamLoading, setIsStreamLoading] = useState(false);
+  const [webrtcStatus, setWebrtcStatus] = useState<string>("idle");
 
   // References
   const socketRef = useRef<Socket | null>(null);
@@ -418,9 +419,15 @@ export default function App() {
     // Monitor WebRTC states
     pc.oniceconnectionstatechange = () => {
       console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
+      setWebrtcStatus(pc.iceConnectionState);
+      if (pc.iceConnectionState === "failed") {
+        console.warn("[WebRTC] ICE Connection failed. Triggering ICE restart...");
+        handleIceRestart(peerSocketId, isInitiator);
+      }
     };
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
+      setWebrtcStatus(pc.connectionState);
     };
     pc.onsignalingstatechange = () => {
       console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
@@ -445,28 +452,30 @@ export default function App() {
       addSystemMessage("Joining without active camera feed.");
     }
 
-    // Handle receiving incoming track
+    // Handle receiving incoming track with high-availability track merging
     pc.ontrack = (event) => {
       console.log("[WebRTC] Track detected:", event.track, event.streams);
+      
+      let inboundStream: MediaStream | null = null;
       if (event.streams && event.streams[0]) {
-        // Reconstruct a new MediaStream instance with all available tracks.
-        // This guarantees that React receives a reference change when the second track (e.g., video following audio) 
-        // arrives asynchronously, forcing VideoPlayer to update its srcObject and invoke play() safely.
-        const inboundStream = event.streams[0];
-        setRemoteStream(new MediaStream(inboundStream.getTracks()));
-      } else {
-        // Fallback: build a media stream on the fly from the individual track
-        setRemoteStream((prev) => {
-          if (prev) {
-            const tracks = prev.getTracks();
-            if (!tracks.some((t) => t.id === event.track.id)) {
-              prev.addTrack(event.track);
-            }
-            return new MediaStream(prev.getTracks());
-          }
-          return new MediaStream([event.track]);
-        });
+        inboundStream = event.streams[0];
       }
+
+      setRemoteStream((prev) => {
+        const existingTracks = prev ? prev.getTracks() : [];
+        const inboundTracks = inboundStream ? inboundStream.getTracks() : [event.track];
+        
+        // Merge unique tracks by ID to avoid duplicates
+        const mergedTracks = [...existingTracks];
+        inboundTracks.forEach((track) => {
+          if (!mergedTracks.some((t) => t.id === track.id)) {
+            mergedTracks.push(track);
+          }
+        });
+
+        console.log("[WebRTC] Internal stream track composition updated:", mergedTracks.map(t => t.kind));
+        return new MediaStream(mergedTracks);
+      });
     };
 
     // Forward gathered ICE candidates to paired stranger
@@ -500,6 +509,26 @@ export default function App() {
     }
   };
 
+  // ICE Restart helper on failure
+  const handleIceRestart = async (peerSocketId: string, isInitiator: boolean) => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    if (isInitiator) {
+      try {
+        console.log("[WebRTC] Attempting ICE restart...");
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        socketRef.current?.emit("webrtc-signal", {
+          to: peerSocketId,
+          signal: { offer }
+        });
+        addSystemMessage("Re-routing connection path...");
+      } catch (err) {
+        console.error("Failed to execute ICE restart offer generation:", err);
+      }
+    }
+  };
+
   const cleanPeerConnection = () => {
     if (pcRef.current) {
       try {
@@ -513,6 +542,7 @@ export default function App() {
     partnerIdRef.current = null;
     setPartnerId(null);
     signalQueueRef.current = []; // Reset queue
+    setWebrtcStatus("idle");
   };
 
   // Interest list management
@@ -979,6 +1009,7 @@ export default function App() {
                       onToggleCamera={handleToggleCamera}
                       onToggleMic={handleToggleMic}
                       mode={mode}
+                      webrtcStatus={webrtcStatus}
                     />
                   </div>
                 )}
