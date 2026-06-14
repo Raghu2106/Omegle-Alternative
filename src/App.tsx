@@ -63,6 +63,7 @@ export default function App() {
   const partnerIdRef = useRef<string | null>(partnerId);
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
+  const pendingRemoteCandidatesRef = useRef<any[]>([]);
 
   // Sync refs to avoid stale closures in socket events
   useEffect(() => {
@@ -131,19 +132,42 @@ export default function App() {
               to: from,
               signal: { answer }
             });
+
+            // Process any stored candidates that were received before remote description was set
+            if (pendingRemoteCandidatesRef.current.length > 0) {
+              console.log("[WebRTC Queue] Remote description set (offer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
+              for (const cand of pendingRemoteCandidatesRef.current) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                } catch (candidateErr) {
+                  console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+                }
+              }
+              pendingRemoteCandidatesRef.current = [];
+            }
           } else if (signal.answer) {
             console.log("[WebRTC Queue] Processing answer from:", from);
             await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+
+            // Process any stored candidates that were received before remote description was set
+            if (pendingRemoteCandidatesRef.current.length > 0) {
+              console.log("[WebRTC Queue] Remote description set (answer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
+              for (const cand of pendingRemoteCandidatesRef.current) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                } catch (candidateErr) {
+                  console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+                }
+              }
+              pendingRemoteCandidatesRef.current = [];
+            }
           } else if (signal.candidate) {
             if (pc.remoteDescription && pc.remoteDescription.type) {
               console.log("[WebRTC Queue] Adding ICE candidate from:", from);
               await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
             } else {
-              // Re-queue candidate back at the end of the queue if remote description isn't set yet
-              console.log("[WebRTC Queue] Re-queuing ICE candidate (remote description not set yet)");
-              signalProcessingQueueRef.current.push(item);
-              // Break briefly to avoid infinite loop checks in highly eager engines
-              break;
+              console.log("[WebRTC Queue] Storing raw ICE candidate to process post RemoteDescription establish:", signal.candidate);
+              pendingRemoteCandidatesRef.current.push(signal.candidate);
             }
           }
         } catch (err) {
@@ -356,6 +380,9 @@ export default function App() {
       pcRef.current = null;
     }
     setRemoteStream(null);
+    signalProcessingQueueRef.current = [];
+    isProcessingQueueRef.current = false;
+    pendingRemoteCandidatesRef.current = [];
 
     // Standard STUN & robust open TURN/TURNS servers to handle symmetric NAT and cellular/firewall traversals
     const pc = new RTCPeerConnection({
@@ -367,18 +394,32 @@ export default function App() {
         { urls: "stun:stun4.l.google.com:19302" },
         { urls: "stun:openrelay.metered.ca:80" },
         {
-          urls: [
-            "turn:openrelay.metered.ca:80",
-            "turn:openrelay.metered.ca:443",
-            "turn:openrelay.metered.ca:3478",
-            "turn:openrelay.metered.ca:443?transport=tcp",
-            "turn:openrelay.metered.ca:3478?transport=tcp",
-            "turns:openrelay.metered.ca:443",
-            "turns:openrelay.metered.ca:443?transport=tcp",
-            "turns:openrelay.metered.ca:80",
-            "turns:openrelay.metered.ca:3478",
-            "turns:openrelay.metered.ca:3478?transport=tcp"
-          ],
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:3478",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:3478?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turns:openrelay.metered.ca:443?transport=tcp",
           username: "openrelayproject",
           credential: "openrelayproject"
         }
@@ -522,6 +563,7 @@ export default function App() {
     setPartnerId(null);
     signalProcessingQueueRef.current = []; // Reset queue
     isProcessingQueueRef.current = false;
+    pendingRemoteCandidatesRef.current = [];
     setWebrtcStatus("idle");
   };
 
