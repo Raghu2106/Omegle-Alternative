@@ -36,13 +36,20 @@ export default function App() {
 
   useEffect(() => {
     try {
-      setIsInsideIframe(
-        typeof window !== "undefined" && 
-        window.self !== window.top
-      );
+      if (typeof window !== "undefined") {
+        const framed = window.self !== window.top;
+        setIsInsideIframe(framed);
+      }
     } catch (e) {
-      console.warn("[App] Sandbox iframe restricted top-level access, assuming inside iframe.", e);
-      setIsInsideIframe(true);
+      if (typeof window !== "undefined" && window.location.ancestorOrigins) {
+        const ancestors = Array.from(window.location.ancestorOrigins);
+        const containsStudio = ancestors.some(
+          (o) => o.includes("ai.studio") || o.includes("google.com") || o.includes("aistudio")
+        );
+        setIsInsideIframe(containsStudio);
+      } else {
+        setIsInsideIframe(false);
+      }
     }
   }, []);
 
@@ -152,7 +159,7 @@ export default function App() {
               console.log("[WebRTC Queue] Remote description set (offer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
               for (const cand of pendingRemoteCandidatesRef.current) {
                 try {
-                  await pc.addIceCandidate(cand);
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
                 } catch (candidateErr) {
                   console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
                 }
@@ -168,7 +175,7 @@ export default function App() {
               console.log("[WebRTC Queue] Remote description set (answer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
               for (const cand of pendingRemoteCandidatesRef.current) {
                 try {
-                  await pc.addIceCandidate(cand);
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
                 } catch (candidateErr) {
                   console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
                 }
@@ -178,7 +185,7 @@ export default function App() {
           } else if (signal.candidate) {
             if (pc.remoteDescription && pc.remoteDescription.type) {
               console.log("[WebRTC Queue] Adding ICE candidate from:", from);
-              await pc.addIceCandidate(signal.candidate);
+              await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
             } else {
               console.log("[WebRTC Queue] Storing raw ICE candidate to process post RemoteDescription establish:", signal.candidate);
               pendingRemoteCandidatesRef.current.push(signal.candidate);
@@ -994,35 +1001,37 @@ export default function App() {
                     </div>
 
                     {/* Massive matching start trigger button */}
-                    {isInsideIframe && mode === "video" ? (
-                      <a
-                        id="btn-start-matching-tab"
-                        href={typeof window !== "undefined" ? window.location.href : "#"}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 select-none text-center ${
-                          agreedToTerms
-                            ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:shadow-lg"
-                            : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200 pointer-events-none"
-                        }`}
-                      >
-                        <span>Open in New Tab for Video ↗</span>
-                        <Sparkles className="w-4 h-4 text-sky-300 animate-pulse" />
-                      </a>
-                    ) : (
-                      <button
-                        id="btn-start-matching"
-                        onClick={handleStartMatching}
-                        disabled={!agreedToTerms}
-                        className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
-                          agreedToTerms
-                            ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-805 hover:shadow-lg"
-                            : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200"
-                        }`}
-                      >
-                        <span>Start Chatting</span>
-                        <Sparkles className="w-4 h-4 text-sky-300" />
-                      </button>
+                    <button
+                      id="btn-start-matching"
+                      onClick={handleStartMatching}
+                      disabled={!agreedToTerms}
+                      className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                        agreedToTerms
+                          ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-805 hover:shadow-lg"
+                          : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200"
+                      }`}
+                    >
+                      <span>Start Chatting</span>
+                      <Sparkles className="w-4 h-4 text-sky-300" />
+                    </button>
+
+                    {isInsideIframe && mode === "video" && (
+                      <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-[11px] text-amber-700 leading-normal font-medium text-center space-y-1 mt-1">
+                        <div>
+                          ⚠️ <strong>Environment Notice:</strong> Sandbox frames (like AI Studio previews) restrict custom browser media routing.
+                        </div>
+                        <div>
+                          If video/audio connection fails, please{" "}
+                          <a
+                            href={typeof window !== "undefined" ? window.location.href : "#"}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-indigo-600 hover:underline font-bold"
+                          >
+                            Open in a Secure New Tab ↗
+                          </a>
+                        </div>
+                      </div>
                     )}
                   </div>
 

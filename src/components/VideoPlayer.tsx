@@ -51,13 +51,22 @@ export default function VideoPlayer({
 
   useEffect(() => {
     try {
-      setIsInsideIframe(
-        typeof window !== "undefined" && 
-        window.self !== window.top
-      );
+      if (typeof window !== "undefined") {
+        const framed = window.self !== window.top;
+        setIsInsideIframe(framed);
+      }
     } catch (e) {
-      console.warn("[VideoPlayer] Sandbox iframe restricted top-level access, assuming inside iframe.", e);
-      setIsInsideIframe(true);
+      // In privacy browsers (e.g., Brave) or embedded WebViews, top-level checks can throw.
+      // Default to false unless ancestorOrigins explicitly confirms a Google AI Studio frame origin.
+      if (typeof window !== "undefined" && window.location.ancestorOrigins) {
+        const ancestors = Array.from(window.location.ancestorOrigins);
+        const containsStudio = ancestors.some(
+          (o) => o.includes("ai.studio") || o.includes("google.com") || o.includes("aistudio")
+        );
+        setIsInsideIframe(containsStudio);
+      } else {
+        setIsInsideIframe(false);
+      }
     }
   }, []);
 
@@ -436,17 +445,58 @@ export default function VideoPlayer({
                   </div>
                   <div className="flex gap-1.5">
                     <span className="text-indigo-400 font-extrabold shrink-0">3.</span>
-                    <span>Testing alone? Use a <strong>different browser or device</strong> (as most webcams only feed into one active tab at once).</span>
+                    <span>Already on a separate secure tab? Click <strong>Dismiss Warning</strong> below.</span>
                   </div>
                 </div>
                 <a
                   href={typeof window !== "undefined" ? window.location.href : "#"}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="block text-center w-full bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-[11px] font-bold py-2.5 px-3 rounded-lg shadow-md transition-all select-none"
+                  className="block text-center w-full bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-[11px] font-bold py-2.5 px-3 rounded-lg shadow-md transition-all select-none text-decoration-none"
                 >
                   Open in a Secure New Tab ↗
                 </a>
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-slate-850/60 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      console.log("[VideoPlayer] User manually bypassed iframe warning.");
+                      setIsInsideIframe(false);
+                    }}
+                    className="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold py-1.5 px-2 rounded-lg transition-colors cursor-pointer border border-slate-700"
+                  >
+                    Dismiss Warning
+                  </button>
+                  {onRetryWebRTC && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsInsideIframe(false);
+                        onRetryWebRTC();
+                      }}
+                      className="flex-1 text-center bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold py-1.5 px-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+                    >
+                      🔄 Retry Call
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const skipBtn = document.getElementById("chat-panel-skip-btn") || document.getElementById("btn-skip-match");
+                      if (skipBtn) {
+                        try {
+                          (skipBtn as any).click();
+                        } catch (e) {
+                          console.warn("Could not auto-trigger Skip element action", e);
+                        }
+                      }
+                    }}
+                    className="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] py-1.5 px-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Skip
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-3.5 max-w-sm bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-2xl text-left">
