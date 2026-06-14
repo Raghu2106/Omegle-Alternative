@@ -15,6 +15,7 @@ interface VideoPlayerProps {
   mode: "text" | "video";
   webrtcStatus?: string;
   onRetryWebRTC?: () => void;
+  remoteVideoFrame?: string | null;
 }
 
 export default function VideoPlayer({
@@ -30,6 +31,7 @@ export default function VideoPlayer({
   mode,
   webrtcStatus,
   onRetryWebRTC,
+  remoteVideoFrame = null,
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -378,7 +380,21 @@ export default function VideoPlayer({
         layout
         className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
-        {isPaired && remoteStream ? (
+        {isPaired && (webrtcStatus === "connected" || webrtcStatus === "completed") && remoteStream ? (
+          <video
+            id="remote-video"
+            ref={remoteVideoCallback}
+            autoPlay
+            playsInline
+            className="w-full h-full object-cover bg-slate-950"
+          />
+        ) : isPaired && remoteVideoFrame ? (
+          <img
+            src={remoteVideoFrame}
+            className="w-full h-full object-cover bg-slate-950 select-none pointer-events-none"
+            alt="Remote Stranger Feed"
+          />
+        ) : isPaired && remoteStream ? (
           <video
             id="remote-video"
             ref={remoteVideoCallback}

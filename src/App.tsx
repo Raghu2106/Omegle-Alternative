@@ -74,6 +74,7 @@ export default function App() {
   const [micActive, setMicActive] = useState(false);
   const [isStreamLoading, setIsStreamLoading] = useState(false);
   const [webrtcStatus, setWebrtcStatus] = useState<string>("idle");
+  const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null);
 
   // References
   const socketRef = useRef<Socket | null>(null);
@@ -124,6 +125,108 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [appState, interests]);
+
+  // Seamless Custom Socket-based Media Relaying & Fallback Engine
+  useEffect(() => {
+    let videoIntervalId: any = null;
+    let audioRecorder: MediaRecorder | null = null;
+
+    const currentPartner = partnerId;
+    const socket = socketRef.current;
+    
+    // We only stream if paired, in video mode, and socket is active
+    if (appState !== "paired" || mode !== "video" || !currentPartner || !socket) {
+      return;
+    }
+
+    console.log("[MediaRelay] Launching smart media socket relay fallback streams...");
+
+    // 1. Video Frame capturing (every ~85ms -> ~11 fps, highly fluid yet network-light!)
+    if (cameraActive && localStream) {
+      const offscreenCanvas = document.createElement("canvas");
+      offscreenCanvas.width = 300;
+      offscreenCanvas.height = 220;
+      const ctx = offscreenCanvas.getContext("2d");
+
+      videoIntervalId = setInterval(() => {
+        const localVideoEl = document.getElementById("local-video") as HTMLVideoElement;
+        if (localVideoEl && !localVideoEl.paused && !localVideoEl.ended && ctx) {
+          try {
+            ctx.drawImage(localVideoEl, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.4); // highly compressed
+            socket.emit("webrtc-signal", {
+              to: currentPartner,
+              signal: { mediaFrame: base64Frame }
+            });
+          } catch (e) {
+            console.warn("[MediaRelay] Error rendering local video frame:", e);
+          }
+        }
+      }, 85);
+    }
+
+    // 2. Audio chunks capturing/encoding (running in 250ms chunks)
+    if (micActive && localStream) {
+      const audioTracks = localStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        try {
+          const recordStream = new MediaStream(audioTracks);
+          let mimeOption = "";
+          try {
+            if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+              mimeOption = "audio/webm;codecs=opus";
+            } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+              mimeOption = "audio/mp4";
+            } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+              mimeOption = "audio/aac";
+            }
+          } catch (e) {
+            // isTypeSupported fallback
+          }
+
+          const recorder = new MediaRecorder(
+            recordStream,
+            mimeOption ? { mimeType: mimeOption } : undefined
+          );
+
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64Audio = reader.result as string;
+                if (socket && partnerIdRef.current === currentPartner) {
+                  socket.emit("webrtc-signal", {
+                    to: currentPartner,
+                    signal: { mediaAudioChunk: base64Audio }
+                  });
+                }
+              };
+              reader.readAsDataURL(event.data);
+            }
+          };
+
+          audioRecorder = recorder;
+          recorder.start(250); // Emit audio slices every 250ms
+        } catch (recorderErr) {
+          console.error("[MediaRelay] Failed to bootstrap custom audio recorder fallback:", recorderErr);
+        }
+      }
+    }
+
+    return () => {
+      console.log("[MediaRelay] Cleared local media socket fallbacks.");
+      if (videoIntervalId) {
+        clearInterval(videoIntervalId);
+      }
+      if (audioRecorder && audioRecorder.state !== "inactive") {
+        try {
+          audioRecorder.stop();
+        } catch (stopErr) {
+          // ignore
+        }
+      }
+    };
+  }, [appState, partnerId, mode, cameraActive, micActive, localStream]);
 
   // Process queued WebRTC signaling messages safely and sequentially (FIFO) to prevent concurrent state collisions
   const processSequentialQueue = async () => {
@@ -389,7 +492,23 @@ export default function App() {
     socket.on("webrtc-signal", ({ from, signal }) => {
       const currentPartner = partnerIdRef.current;
       if (from !== currentPartner) return;
-      enqueueSignal(signal, from);
+      
+      if (signal && signal.mediaFrame) {
+        setRemoteVideoFrame(signal.mediaFrame);
+      } else if (signal && signal.mediaAudioChunk) {
+        try {
+          const audio = new Audio(signal.mediaAudioChunk);
+          audio.volume = 1.0;
+          audio.play().catch((err) => {
+            // Ignore minor benign playback alerts
+            console.log("[AudioRelay] Direct play deferred:", err.message);
+          });
+        } catch (audioErr) {
+          console.warn("[AudioRelay] Audio element builder failed:", audioErr);
+        }
+      } else {
+        enqueueSignal(signal, from);
+      }
     });
 
     // Handle sudden stranger disconnects or leaves
@@ -631,7 +750,8 @@ export default function App() {
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: customIceServers
+      iceServers: customIceServers,
+      iceTransportPolicy: "relay"
     });
 
     pcRef.current = pc;
@@ -837,6 +957,7 @@ export default function App() {
       pcRef.current = null;
     }
     setRemoteStream(null);
+    setRemoteVideoFrame(null);
     partnerIdRef.current = null;
     setPartnerId(null);
     signalProcessingQueueRef.current = []; // Reset queue
@@ -1373,6 +1494,7 @@ export default function App() {
                       mode={mode}
                       webrtcStatus={webrtcStatus}
                       onRetryWebRTC={handleRetryWebRTC}
+                      remoteVideoFrame={remoteVideoFrame}
                     />
                   </div>
                 )}
