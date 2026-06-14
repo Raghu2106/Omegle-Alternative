@@ -139,7 +139,17 @@ export default function App() {
       return;
     }
 
-    console.log("[MediaRelay] Launching smart media socket relay fallback streams...");
+    // Smart fallback behavior: If WebRTC is successfully connected or completed,
+    // we suspend the canvas screenshot rendering and the audio recording.
+    // This stops massive base64 transfers over WebSocket, freeing 100% of CPU and network bandwidth
+    // to let standard high-performance, synchronous WebRTC streams function without lag or stutter.
+    if (webrtcStatus === "connected" || webrtcStatus === "completed") {
+      console.log("[MediaRelay] Pure WebRTC is active and connected. Suspending manual socket media relaying.");
+      setRemoteVideoFrame(null);
+      return;
+    }
+
+    console.log("[MediaRelay] WebRTC is negotiating/connecting/failed. Activating custom socket-based media relay fallbacks...");
 
     // 1. Video Frame capturing (every ~85ms -> ~11 fps, highly fluid yet network-light!)
     if (cameraActive && localStream) {
@@ -226,7 +236,7 @@ export default function App() {
         }
       }
     };
-  }, [appState, partnerId, mode, cameraActive, micActive, localStream]);
+  }, [appState, partnerId, mode, cameraActive, micActive, localStream, webrtcStatus]);
 
   // Process queued WebRTC signaling messages safely and sequentially (FIFO) to prevent concurrent state collisions
   const processSequentialQueue = async () => {
@@ -494,17 +504,38 @@ export default function App() {
       if (from !== currentPartner) return;
       
       if (signal && signal.mediaFrame) {
-        setRemoteVideoFrame(signal.mediaFrame);
+        // Only set the fallback remote frame if standard WebRTC P2P is not yet active
+        const pc = pcRef.current;
+        const isWebRTCActive = pc && (
+          pc.connectionState === "connected" || 
+          pc.iceConnectionState === "connected" || 
+          pc.connectionState === "completed" || 
+          pc.iceConnectionState === "completed"
+        );
+        if (!isWebRTCActive) {
+          setRemoteVideoFrame(signal.mediaFrame);
+        }
       } else if (signal && signal.mediaAudioChunk) {
-        try {
-          const audio = new Audio(signal.mediaAudioChunk);
-          audio.volume = 1.0;
-          audio.play().catch((err) => {
-            // Ignore minor benign playback alerts
-            console.log("[AudioRelay] Direct play deferred:", err.message);
-          });
-        } catch (audioErr) {
-          console.warn("[AudioRelay] Audio element builder failed:", audioErr);
+        // Only play fallback audio chunks if standard WebRTC P2P is not yet active
+        // This avoids concurrent audio playbacks, stutter, and echo with WebRTC's natural sound system
+        const pc = pcRef.current;
+        const isWebRTCActive = pc && (
+          pc.connectionState === "connected" || 
+          pc.iceConnectionState === "connected" || 
+          pc.connectionState === "completed" || 
+          pc.iceConnectionState === "completed"
+        );
+        if (!isWebRTCActive) {
+          try {
+            const audio = new Audio(signal.mediaAudioChunk);
+            audio.volume = 1.0;
+            audio.play().catch((err) => {
+              // Ignore minor benign playback alerts
+              console.log("[AudioRelay] Direct play deferred:", err.message);
+            });
+          } catch (audioErr) {
+            console.warn("[AudioRelay] Audio element builder failed:", audioErr);
+          }
         }
       } else {
         enqueueSignal(signal, from);
@@ -751,7 +782,7 @@ export default function App() {
 
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
-      iceTransportPolicy: "relay"
+      iceTransportPolicy: "all"
     });
 
     pcRef.current = pc;
