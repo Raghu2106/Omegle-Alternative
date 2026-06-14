@@ -59,6 +59,20 @@ export default function VideoPlayer({
     }
   };
 
+  // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
+  useEffect(() => {
+    const handleResize = () => {
+      if (typeof window !== "undefined" && window.innerWidth < 1024) {
+        if (layoutMode === "grid") {
+          setLayoutMode("pip");
+        }
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [layoutMode]);
+
   // Monitor browser fullscreen state change
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -243,7 +257,7 @@ export default function VideoPlayer({
         <button
           type="button"
           onClick={() => setLayoutMode("grid")}
-          className={`flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg transition-all cursor-pointer ${
+          className={`hidden lg:flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg transition-all cursor-pointer ${
             layoutMode === "grid"
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
@@ -308,7 +322,7 @@ export default function VideoPlayer({
             }}
             autoPlay
             playsInline
-            className="w-full h-full object-contain bg-slate-950"
+            className="w-full h-full object-cover bg-slate-950"
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
@@ -418,14 +432,21 @@ export default function VideoPlayer({
       {/* LOCAL USER VIEW BLOCK */}
       <motion.div 
         key={layoutMode}
+        layout={layoutMode === "pip"}
+        transition={{
+          type: "spring",
+          stiffness: 450,
+          damping: 32,
+          mass: 0.6
+        }}
         drag={layoutMode === "pip"}
         dragConstraints={containerRef}
-        dragElastic={0.05}
-        dragMomentum={false}
+        dragElastic={0.12}
+        dragMomentum={true}
         onClick={() => setShowLocalControls((prev) => !prev)}
-        whileHover={layoutMode === "pip" ? { scale: 1.05 } : {}}
-        whileTap={layoutMode === "pip" ? { scale: 1.02, cursor: "grabbing" } : {}}
-        className={`group overflow-hidden bg-slate-950 flex items-center justify-center cursor-pointer transition-all ${
+        whileHover={layoutMode === "pip" ? { scale: 1.04 } : {}}
+        whileTap={layoutMode === "pip" ? { scale: 0.98, cursor: "grabbing" } : {}}
+        className={`group overflow-hidden bg-slate-950 flex items-center justify-center cursor-pointer will-change-transform translate-z-0 ${
           layoutMode === "pip"
             ? "absolute bottom-1.5 right-1.5 w-20 h-28 sm:bottom-4 sm:right-4 sm:w-32 sm:h-44 md:bottom-6 md:right-6 md:w-40 md:h-52 rounded-2xl border border-white/95 shadow-2xl z-30 cursor-grab"
             : "relative w-full h-full min-h-0 rounded-2xl border border-slate-800"
@@ -448,9 +469,7 @@ export default function VideoPlayer({
             autoPlay
             playsInline
             muted
-            className={`w-full h-full bg-slate-950 mirror-mode ${
-              layoutMode === "pip" ? "object-cover" : "object-contain"
-            }`}
+            className="w-full h-full bg-slate-950 mirror-mode object-cover"
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center p-3 bg-radial from-slate-900 to-slate-950">
@@ -520,18 +539,18 @@ export default function VideoPlayer({
         </div>
       </motion.div>
 
-      {/* Floating Action: Fullscreen Toggle (Bottom Right) */}
-      <div className="absolute bottom-4 right-4 z-[45] flex items-center justify-center">
+      {/* Floating Action: Fullscreen Toggle (Top Right, stacked cleanly below Layout Selector and transparent/half-opacity) */}
+      <div className="absolute top-14 right-2 sm:top-[68px] sm:right-3 lg:top-[68px] lg:right-4 z-[45] flex items-center justify-center opacity-60 hover:opacity-100 transition-opacity duration-300">
         <button
           type="button"
           onClick={toggleFullscreen}
-          className="flex items-center justify-center bg-slate-950/90 hover:bg-indigo-600 active:scale-95 border border-slate-800 hover:border-indigo-500 rounded-xl p-2.5 text-slate-300 hover:text-white shadow-2xl transition-all cursor-pointer backdrop-blur-md"
+          className="flex items-center justify-center bg-slate-950/90 hover:bg-indigo-600 active:scale-95 border border-slate-800 hover:border-indigo-500 rounded-xl p-2 sm:p-2.5 text-slate-300 hover:text-white shadow-2xl transition-all cursor-pointer backdrop-blur-md"
           title={(isFullscreen || isVirtualFullscreen) ? "Exit Fullscreen" : "Enter Fullscreen"}
         >
           {(isFullscreen || isVirtualFullscreen) ? (
-            <Minimize2 className="w-4 h-4" />
+            <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           ) : (
-            <Maximize2 className="w-4 h-4" />
+            <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           )}
         </button>
       </div>
@@ -539,8 +558,10 @@ export default function VideoPlayer({
       {/* Global CSS for camera mirrors */}
       <style>{`
         .mirror-mode {
-          transform: rotateY(180deg);
-          -webkit-transform: rotateY(180deg);
+          transform: rotateY(180deg) translateZ(0);
+          -webkit-transform: rotateY(180deg) translateZ(0);
+          backface-visibility: hidden;
+          will-change: transform;
         }
       `}</style>
     </div>
