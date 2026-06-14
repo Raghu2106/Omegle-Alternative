@@ -303,7 +303,24 @@ export default function VideoPlayer({
         {isPaired && remoteStream ? (
           <video
             id="remote-video"
-            ref={remoteVideoRef}
+            ref={(el) => {
+              remoteVideoRef.current = el;
+              if (el && remoteStream) {
+                if (el.srcObject !== remoteStream) {
+                  el.srcObject = remoteStream;
+                }
+                el.play()
+                  .then(() => {
+                    setAutoplayBlocked(false);
+                  })
+                  .catch((err) => {
+                    console.warn("[VideoPlayer] remote play attempt blocked:", err);
+                    if (!userHasInteracted) {
+                      setAutoplayBlocked(true);
+                    }
+                  });
+              }
+            }}
             autoPlay
             playsInline
             className="w-full h-full object-cover bg-slate-950"
@@ -438,7 +455,17 @@ export default function VideoPlayer({
         {localStream && cameraActive ? (
           <video
             id="local-video"
-            ref={localVideoRef}
+            ref={(el) => {
+              localVideoRef.current = el;
+              if (el && localStream) {
+                if (el.srcObject !== localStream) {
+                  el.srcObject = localStream;
+                }
+                el.play().catch((err) => {
+                  console.warn("[VideoPlayer] local play attempt failed:", err);
+                });
+              }
+            }}
             autoPlay
             playsInline
             muted
