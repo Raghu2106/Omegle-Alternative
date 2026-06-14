@@ -77,6 +77,7 @@ export default function App() {
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   const pendingRemoteCandidatesRef = useRef<any[]>([]);
+  const isInitiatorRef = useRef<boolean>(false);
 
   // Sync refs to avoid stale closures in socket events
   useEffect(() => {
@@ -218,6 +219,7 @@ export default function App() {
     // Match established callback
     socket.on("paired", async ({ peerId, initiator, commonInterests: common }) => {
       partnerIdRef.current = peerId; // STABILIZE REF SYNCHRONOUSLY!
+      isInitiatorRef.current = initiator; // Save initiator value!
       setPartnerId(peerId);
       setCommonInterests(common);
       setAppState("paired");
@@ -716,6 +718,17 @@ export default function App() {
     }
   };
 
+  const handleRetryWebRTC = async () => {
+    if (partnerIdRef.current) {
+      console.log("[WebRTC] Manually retrying WebRTC connection with partner:", partnerIdRef.current);
+      addSystemMessage("Re-negotiating peer association tracks...");
+      setWebrtcStatus("connecting");
+      await initiateWebRTCPeer(partnerIdRef.current, isInitiatorRef.current);
+    } else {
+      console.warn("[WebRTC] Cannot retry WebRTC transition, no active partner ID ref");
+    }
+  };
+
   return (
     <div className={`bg-slate-50 flex flex-col font-sans selection:bg-indigo-100 selection:text-indigo-900 ${
       appState === "landing" ? "min-h-screen min-h-[100dvh] overflow-y-auto" : "h-screen h-[100dvh] overflow-hidden"
@@ -1078,6 +1091,7 @@ export default function App() {
                       onToggleMic={handleToggleMic}
                       mode={mode}
                       webrtcStatus={webrtcStatus}
+                      onRetryWebRTC={handleRetryWebRTC}
                     />
                   </div>
                 )}

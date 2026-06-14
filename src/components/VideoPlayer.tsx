@@ -14,6 +14,7 @@ interface VideoPlayerProps {
   onToggleMic: () => void;
   mode: "text" | "video";
   webrtcStatus?: string;
+  onRetryWebRTC?: () => void;
 }
 
 export default function VideoPlayer({
@@ -28,6 +29,7 @@ export default function VideoPlayer({
   onToggleMic,
   mode,
   webrtcStatus,
+  onRetryWebRTC,
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -412,39 +414,94 @@ export default function VideoPlayer({
         {/* WebRTC Failed Troubleshooting Overlay */}
         {isPaired && webrtcStatus === "failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm z-30 p-4 text-center">
-            <div className="space-y-3.5 max-w-sm bg-slate-900 border border-rose-500/30 p-5 rounded-2xl shadow-2xl text-left">
-              <div className="mx-auto w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                <AlertCircle className="w-5 h-5 animate-pulse" />
-              </div>
-              <div className="space-y-1 text-center">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">WebRTC Connection Blocked</h4>
-                <p className="text-[10px] text-slate-400 leading-normal">
-                  Google Chrome prevents custom Peer-to-Peer (P2P) signaling when running inside a sandboxed preview frame.
-                </p>
-              </div>
-              <div className="text-[10px] text-slate-350 bg-slate-950/50 p-3 rounded-xl border border-slate-800 space-y-1.5 leading-relaxed">
-                <div className="flex gap-1.5">
-                  <span className="text-indigo-400 font-extrabold shrink-0">1.</span>
-                  <span>Click the <strong>Open in New Tab</strong> button on the top-right of your screen.</span>
+            {isInsideIframe ? (
+              <div className="space-y-3.5 max-w-sm bg-slate-900 border border-rose-500/30 p-5 rounded-2xl shadow-2xl text-left">
+                <div className="mx-auto w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                  <AlertCircle className="w-5 h-5 animate-pulse" />
                 </div>
-                <div className="flex gap-1.5">
-                  <span className="text-indigo-400 font-extrabold shrink-0">2.</span>
-                  <span>Select <strong>Webcam Video & Voice</strong> mode to engage your devices.</span>
+                <div className="space-y-1 text-center">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">WebRTC Connection Blocked</h4>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Google Chrome prevents custom Peer-to-Peer (P2P) signaling when running inside a sandboxed preview frame.
+                  </p>
                 </div>
-                <div className="flex gap-1.5">
-                  <span className="text-indigo-400 font-extrabold shrink-0">3.</span>
-                  <span>Testing alone? Use a <strong>different browser or device</strong> (as most webcams only feed into one active tab at once).</span>
+                <div className="text-[10px] text-slate-350 bg-slate-950/50 p-3 rounded-xl border border-slate-800 space-y-1.5 leading-relaxed">
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">1.</span>
+                    <span>Click the <strong>Open in New Tab</strong> button on the top-right of your screen.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">2.</span>
+                    <span>Select <strong>Webcam Video & Voice</strong> mode to engage your devices.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">3.</span>
+                    <span>Testing alone? Use a <strong>different browser or device</strong> (as most webcams only feed into one active tab at once).</span>
+                  </div>
+                </div>
+                <a
+                  href={typeof window !== "undefined" ? window.location.href : "#"}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="block text-center w-full bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-[11px] font-bold py-2.5 px-3 rounded-lg shadow-md transition-all select-none"
+                >
+                  Open in a Secure New Tab ↗
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-3.5 max-w-sm bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-2xl text-left">
+                <div className="mx-auto w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <AlertCircle className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="space-y-1 text-center">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Connection Delay or Interruption</h4>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Unable to establish a secure direct peer-to-peer data tunnel with the connected stranger.
+                  </p>
+                </div>
+                <div className="text-[10px] text-slate-350 bg-slate-950/50 p-3 rounded-xl border border-slate-800 space-y-1.5 leading-relaxed">
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">•</span>
+                    <span><strong>Testing alone?</strong> Standard webcams can only stream to one client window at a time. Open an Incognito window or use a different device to test.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">•</span>
+                    <span>Make sure your webcam/mic is not already active in another app (like Zoom, Teams, Meet) or on another tab of this app.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">•</span>
+                    <span>Click <strong>Retry Connection</strong> below to force a re-negotiation of peer networks.</span>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  {onRetryWebRTC && (
+                    <button
+                      type="button"
+                      onClick={onRetryWebRTC}
+                      className="flex-1 text-center bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all cursor-pointer"
+                    >
+                      🔄 Retry Connection
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const skipBtn = document.getElementById("chat-panel-skip-btn") || document.getElementById("btn-skip-match");
+                      if (skipBtn) {
+                        try {
+                          (skipBtn as any).click();
+                        } catch (e) {
+                          console.warn("Could not auto-trigger Skip element action", e);
+                        }
+                      }
+                    }}
+                    className="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold py-2 px-3 rounded-lg shadow-xs transition-colors cursor-pointer border border-slate-700"
+                  >
+                    Skip & Connect Next
+                  </button>
                 </div>
               </div>
-              <a
-                href={typeof window !== "undefined" ? window.location.href : "#"}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="block text-center w-full bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all select-none"
-              >
-                Open in a Secure New Tab ↗
-              </a>
-            </div>
+            )}
           </div>
         )}
 
