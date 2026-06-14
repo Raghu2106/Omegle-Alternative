@@ -655,11 +655,19 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { min: 1280, ideal: 1920 },
+          height: { min: 720, ideal: 1080 },
+          frameRate: { min: 24, ideal: 30, max: 60 },
           facingMode: "user"
         },
-        audio: true
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: false }, // Avoid aggressive gate suppression of vocal frequency range
+          autoGainControl: { ideal: true },
+          channelCount: { ideal: 2 }, // Stereo channels
+          sampleRate: { ideal: 48000 }, // High fidelity CD dynamic sample rate
+          sampleSize: { ideal: 16 }
+        }
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
@@ -670,7 +678,18 @@ export default function App() {
     } catch (err) {
       console.warn("High-quality media stream denied, attempting standard video+audio fallback...", err);
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+          },
+          audio: {
+            echoCancellation: { ideal: true },
+            noiseSuppression: { ideal: false },
+            autoGainControl: { ideal: true }
+          }
+        });
         localStreamRef.current = stream;
         setLocalStream(stream);
         setCameraActive(true);
@@ -681,7 +700,14 @@ export default function App() {
         console.warn("Standard video+audio fallback failed, attempting video-only/voice fallbacks...", err15);
         try {
           // Fallback 1: Video-only if microphone is blocked or missing
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30 }
+            },
+            audio: false
+          });
           localStreamRef.current = stream;
           setLocalStream(stream);
           setCameraActive(true);
@@ -691,7 +717,14 @@ export default function App() {
         } catch (err2) {
           try {
             // Fallback 2: Audio-only if webcam is blocked or missing
-            const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: false,
+              audio: {
+                echoCancellation: { ideal: true },
+                noiseSuppression: { ideal: false },
+                autoGainControl: { ideal: true }
+              }
+            });
             localStreamRef.current = stream;
             setLocalStream(stream);
             setCameraActive(false);
@@ -782,35 +815,69 @@ export default function App() {
   };
 
   // SDP bandwidth/bitrate modifier to lock in crystal-clear high-definition video and robust stereo audio
-  const setMediaBitrates = (sdp: string, videoBitrateKbps: number, audioBitrateKbps: number): string => {
+  const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
+    const videoBitrateKbps = 4000; // Force 4.0 Mbps for crisp high-definition 1080p stream
+    const audioBitrateKbps = 160;  // Force 160 Kbps ultra-vivid stereo CD audio representation
+
     let lines = sdp.split("\r\n");
-    let modifiedSdp = "";
+    let modifiedLines: string[] = [];
     let isVideoSection = false;
     let isAudioSection = false;
 
+    // Find the Opus payload type format lines to inject premium quality parameters
+    let opusPayloadType: string | null = null;
     for (let line of lines) {
+      if (line.startsWith("a=rtpmap:") && line.toLowerCase().includes("opus/48000")) {
+        const match = line.match(/a=rtpmap:(\d+)\s+opus/i);
+        if (match) {
+          opusPayloadType = match[1];
+        }
+      }
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+
+      // Detect media section transitions
       if (line.startsWith("m=video")) {
         isVideoSection = true;
         isAudioSection = false;
       } else if (line.startsWith("m=audio")) {
-        isVideoSection = true;
+        isVideoSection = false;
         isAudioSection = true;
       } else if (line.startsWith("m=")) {
         isVideoSection = false;
         isAudioSection = false;
       }
 
-      modifiedSdp += line + "\r\n";
-
-      // Insert bandwidth limit AS (Application Specific/Kbps) if not already declared in sdp description
-      if (line.startsWith("m=video") && !sdp.includes("b=AS:") && !sdp.includes("b=TIAS:")) {
-        modifiedSdp += `b=AS:${videoBitrateKbps}\r\n`;
+      // Check if there are pre-existing bandwidth definitions inside this section and skip them
+      if (isVideoSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:"))) {
+        continue;
       }
-      if (line.startsWith("m=audio") && !sdp.includes("b=AS:") && !sdp.includes("b=TIAS:")) {
-        modifiedSdp += `b=AS:${audioBitrateKbps}\r\n`;
+      if (isAudioSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:"))) {
+        continue;
+      }
+
+      // Overwrite Opus media format parameters to unlock maximum quality
+      if (isAudioSection && opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) {
+        // Boost Opus config to enable stereo, enable high audio fidelity, disable DTX (which acts as voice gate-cut), and specify bitrates
+        line = `a=fmtp:${opusPayloadType} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=${audioBitrateKbps * 1000};cbr=1`;
+      }
+
+      modifiedLines.push(line);
+
+      // Inject custom bandwidth constraints directly under the media declaration lines
+      if (line.startsWith("m=video")) {
+        modifiedLines.push(`b=AS:${videoBitrateKbps}`);
+        modifiedLines.push(`b=TIAS:${videoBitrateKbps * 1000}`);
+      }
+      if (line.startsWith("m=audio")) {
+        modifiedLines.push(`b=AS:${audioBitrateKbps}`);
+        modifiedLines.push(`b=TIAS:${audioBitrateKbps * 1000}`);
       }
     }
-    return modifiedSdp;
+
+    return modifiedLines.join("\r\n");
   };
 
   // WebRTC Peer connection signaling & establishment
