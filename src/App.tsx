@@ -1001,9 +1001,16 @@ export default function App() {
       
       {/* Global Simple Navigation Bar */}
       <nav id="app-navigation" className="bg-white border-b border-slate-100 px-6 py-2 flex items-center justify-between sticky top-0 z-50 shadow-2xs h-[64px] lg:h-[110px] shrink-0">
-        <div 
-          onClick={handleStopMatch}
-          className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none shrink-0"
+        <a 
+          href="/"
+          onClick={(e) => {
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+              return; // Let browser process native multi-target modifier key clicks
+            }
+            e.preventDefault();
+            handleStopMatch();
+          }}
+          className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none shrink-0 text-slate-900 hover:text-slate-900 decoration-none no-underline"
           title="Return to home page"
         >
           <div className="h-9 w-9 bg-linear-to-tr from-sky-400 via-indigo-500 to-emerald-400 rounded-xl flex items-center justify-center text-white font-extrabold tracking-tighter text-lg shadow-md relative overflow-hidden">
@@ -1013,9 +1020,9 @@ export default function App() {
           </div>
           <div className="hidden sm:block">
             <h1 className="text-sm font-extrabold tracking-tight text-slate-900 uppercase">Umegle</h1>
-            <p className="text-[10px] text-slate-450 font-medium tracking-wide">Secure interest-based video chat</p>
+            <p className="text-[10px] text-slate-400 font-medium tracking-wide">Secure interest-based video chat</p>
           </div>
-        </div>
+        </a>
 
         {/* Dynamic Horizontal Header Ad Placement - Desktop Only */}
         <div className="hidden lg:flex flex-grow items-center justify-center max-w-[728px] h-[90px] mx-4 relative overflow-hidden select-none shrink-0">
