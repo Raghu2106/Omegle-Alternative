@@ -39,9 +39,11 @@ export default function VideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVirtualFullscreen, setIsVirtualFullscreen] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [userHasInteracted, setUserHasInteracted] = useState(false);
   const [showLocalControls, setShowLocalControls] = useState(false);
 
   const handleRecoverAutoplay = () => {
+    setUserHasInteracted(true);
     if (remoteVideoRef.current) {
       remoteVideoRef.current.play()
         .then(() => {
@@ -137,19 +139,23 @@ export default function VideoPlayer({
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteVideoRef.current.srcObject !== remoteStream) {
+        remoteVideoRef.current.srcObject = remoteStream;
+      }
       remoteVideoRef.current.play()
         .then(() => {
           setAutoplayBlocked(false);
         })
         .catch((err) => {
           console.warn("[VideoPlayer] Autoplay was blocked/halted by browser:", err);
-          setAutoplayBlocked(true);
+          if (!userHasInteracted) {
+            setAutoplayBlocked(true);
+          }
         });
     } else {
       setAutoplayBlocked(false);
     }
-  }, [remoteStream, layoutMode, isPaired]);
+  }, [remoteStream, layoutMode, isPaired, userHasInteracted]);
 
   // Proactively listen for any document interaction to recover from autoplay blockages
   useEffect(() => {
@@ -161,6 +167,7 @@ export default function VideoPlayer({
           .then(() => {
             console.log("[VideoPlayer] Autoplay successfully recovered via user interaction.");
             setAutoplayBlocked(false);
+            setUserHasInteracted(true);
           })
           .catch((err) => {
             console.warn("[VideoPlayer] User interaction play recovery attempt failed:", err);

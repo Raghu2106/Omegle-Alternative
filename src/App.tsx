@@ -108,6 +108,8 @@ export default function App() {
     const queue = [...signalQueueRef.current];
     signalQueueRef.current = [];
 
+    let descriptionSet = false;
+
     for (const signal of queue) {
       try {
         if (signal.offer) {
@@ -119,9 +121,11 @@ export default function App() {
             to: partnerIdRef.current || "",
             signal: { answer }
           });
+          descriptionSet = true;
         } else if (signal.answer) {
           console.log("[WebRTC] Processing queued answer");
           await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+          descriptionSet = true;
         } else if (signal.candidate) {
           if (pc.remoteDescription && pc.remoteDescription.type) {
             console.log("[WebRTC] Processing queued candidate");
@@ -134,6 +138,12 @@ export default function App() {
       } catch (err) {
         console.error("Error processing queued signaling item: ", err);
       }
+    }
+
+    // Recursively process remaining candidates if the remote description has just been established
+    if (descriptionSet && signalQueueRef.current.length > 0) {
+      console.log("[WebRTC] Remote description established; flushing remaining queued candidates.");
+      await processSignalQueue();
     }
   };
 
@@ -405,15 +415,21 @@ export default function App() {
     pc.ontrack = (event) => {
       console.log("[WebRTC] Track detected:", event.track, event.streams);
       if (event.streams && event.streams[0]) {
-        // Create a new MediaStream from the tracks because reference-equality prevents React re-render when more tracks (audio and video) are dynamically added.
-        setRemoteStream(new MediaStream(event.streams[0].getTracks()));
+        // Use the event stream directly so that we maintain reference stability.
+        // This stops sub-tracks (like audio and then video) from resetting the DOM video element srcObject on every track receive.
+        const inboundStream = event.streams[0];
+        setRemoteStream((prev) => {
+          if (prev === inboundStream) return prev;
+          return inboundStream;
+        });
       } else {
         // Fallback: build a media stream on the fly from the individual track
         setRemoteStream((prev) => {
           if (prev) {
             const tracks = prev.getTracks();
             if (!tracks.some((t) => t.id === event.track.id)) {
-              return new MediaStream([...tracks, event.track]);
+              prev.addTrack(event.track);
+              return new MediaStream(prev.getTracks()); // Create new stream instance only if new track is added
             }
             return prev;
           }
