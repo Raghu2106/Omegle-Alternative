@@ -151,6 +151,31 @@ export default function VideoPlayer({
     }
   }, [remoteStream, layoutMode, isPaired]);
 
+  // Proactively listen for any document interaction to recover from autoplay blockages
+  useEffect(() => {
+    if (!autoplayBlocked || !remoteStream) return;
+
+    const tryPlay = () => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.play()
+          .then(() => {
+            console.log("[VideoPlayer] Autoplay successfully recovered via user interaction.");
+            setAutoplayBlocked(false);
+          })
+          .catch((err) => {
+            console.warn("[VideoPlayer] User interaction play recovery attempt failed:", err);
+          });
+      }
+    };
+
+    const events = ["click", "keydown", "mousedown", "touchstart"];
+    events.forEach((event) => document.addEventListener(event, tryPlay, { passive: true }));
+
+    return () => {
+      events.forEach((event) => document.removeEventListener(event, tryPlay));
+    };
+  }, [autoplayBlocked, remoteStream]);
+
   if (mode === "text") {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-linear-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 p-8 text-center border-r border-slate-200">
