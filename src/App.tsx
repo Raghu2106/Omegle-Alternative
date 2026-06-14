@@ -195,9 +195,17 @@ export default function App() {
                     ? (cand.candidate.match(/typ\s+(\w+)/)?.[1] || "unknown")
                     : "unknown";
                   try {
+                    if (storedCandType === "relay") {
+                      console.log(`%c[TURN] [ICE] relay candidate received (stored) from queue`, "color: #9333ea; font-style: italic;");
+                      console.log(`%c[TURN] [ICE] Adding local/remote RELAY candidate (from stored queue)`, "color: #a855f7;");
+                    }
                     console.log(`[ICE] Calling addIceCandidate for stored remote candidate | type: ${storedCandType} | candidate: "${cand.candidate}"`);
                     await activePc.addIceCandidate(new RTCIceCandidate(cand));
-                    console.log(`[ICE] addIceCandidate (stored candidate) succeeded for type "${storedCandType}"`);
+                    if (storedCandType === "relay") {
+                      console.log(`%c[TURN] [ICE] relay candidate added (from stored queue) successfully!`, "color: #10b981; font-weight: bold;");
+                    } else {
+                      console.log(`[ICE] addIceCandidate (stored candidate) succeeded for type "${storedCandType}"`);
+                    }
                   } catch (candidateErr) {
                     console.error(`[ICE] Error calling addIceCandidate for stored candidate of type "${storedCandType}":`, candidateErr);
                   }
@@ -225,9 +233,17 @@ export default function App() {
                     ? (cand.candidate.match(/typ\s+(\w+)/)?.[1] || "unknown")
                     : "unknown";
                   try {
+                    if (storedCandType === "relay") {
+                      console.log(`%c[TURN] [ICE] relay candidate received (stored) from queue`, "color: #9333ea; font-style: italic;");
+                      console.log(`%c[TURN] [ICE] Adding local/remote RELAY candidate (from stored queue)`, "color: #a855f7;");
+                    }
                     console.log(`[ICE] Calling addIceCandidate for stored remote candidate | type: ${storedCandType} | candidate: "${cand.candidate}"`);
                     await pc.addIceCandidate(new RTCIceCandidate(cand));
-                    console.log(`[ICE] addIceCandidate (stored candidate) succeeded for type "${storedCandType}"`);
+                    if (storedCandType === "relay") {
+                      console.log(`%c[TURN] [ICE] relay candidate added (from stored queue) successfully!`, "color: #10b981; font-weight: bold;");
+                    } else {
+                      console.log(`[ICE] addIceCandidate (stored candidate) succeeded for type "${storedCandType}"`);
+                    }
                   } catch (candidateErr) {
                     console.error(`[ICE] Error calling addIceCandidate for stored candidate of type "${storedCandType}":`, candidateErr);
                   }
@@ -269,17 +285,32 @@ export default function App() {
               ? (signal.candidate.candidate.match(/typ\s+(\w+)/)?.[1] || "unknown")
               : "unknown";
             
+            if (candType === "relay") {
+              console.log(`%c[TURN] [ICE] relay candidate received from ${from}: ip=${signal.candidate.address || "unknown"} | port=${signal.candidate.port || "unknown"}`, "color: #f59e0b; font-weight: bold;");
+            }
+
             if (pc.remoteDescription && pc.remoteDescription.type) {
               console.log(`[ICE] Attempting to add incoming ICE candidate from ${from} | type: ${candType} | ip: ${signal.candidate.address || "unknown"} | port: ${signal.candidate.port || "unknown"}`);
               try {
+                if (candType === "relay") {
+                  console.log(`%c[TURN] [ICE] Adding RELAY candidate dynamically`, "color: #d946ef;");
+                }
                 console.log(`[ICE] Calling addIceCandidate for type "${candType}" | candidate: "${signal.candidate.candidate}"`);
                 await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-                console.log(`[ICE] Successfully added remote ICE candidate (${candType})`);
+                if (candType === "relay") {
+                  console.log(`%c[TURN] [ICE] relay candidate added successfully!`, "color: #10b981; font-weight: bold;");
+                } else {
+                  console.log(`[ICE] Successfully added remote ICE candidate (${candType})`);
+                }
               } catch (candidateErr) {
                 console.error(`[ICE] Error calling addIceCandidate dynamically for type "${candType}":`, candidateErr, "\nCandidate content:", signal.candidate);
               }
             } else {
-              console.log(`[ICE] RemoteDescription not yet set. Storing incoming "${candType}" ICE candidate in pending queue.`);
+              if (candType === "relay") {
+                console.log(`%c[TURN] [ICE] RemoteDescription not yet set. Storing incoming RELAY candidate in pending queue`, "color: #3b82f6;");
+              } else {
+                console.log(`[ICE] RemoteDescription not yet set. Storing incoming "${candType}" ICE candidate in pending queue.`);
+              }
               pendingRemoteCandidatesRef.current.push(signal.candidate);
             }
           }
@@ -560,82 +591,25 @@ export default function App() {
 
     // Configure STUN/TURN servers. Support dynamic production TURN configuration via environment variables
     const customIceServers: RTCIceServer[] = [
-      // 1. Prioritize Secure TLS (turns) on port 443 first (cellular network & enterprise firewall bypass)
+      // 1. Standard STUN Servers (highly reliable Google infrastructure)
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+
+      // 2. High-performance Secure TURN (turns) on port 443 over TCP.
+      // Acts as fall-back standard HTTPS, guaranteeing cellular/corporate firewall bypass.
       {
         urls: "turns:openrelay.metered.ca:443?transport=tcp",
         username: "openrelayproject",
         credential: "openrelayproject"
       },
-      {
-        urls: "turns:openrelay.metered.ca:443", // let browser auto-negotiate best transport
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      // 2. Secure TLS (turns) on port 3478
-      {
-        urls: "turns:openrelay.metered.ca:3478?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turns:openrelay.metered.ca:3478",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      // 3. Un-encrypted TURN on port 443 (effectively mimics HTTPS traffic)
-      {
-        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:443?transport=udp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:443",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      // 4. Un-encrypted TURN on standard ports / UDP fallbacks
-      {
-        urls: "turn:openrelay.metered.ca:3478?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
+
+      // 3. Fallback TURN (turn) on standard WebRTC UDP port 3478
       {
         urls: "turn:openrelay.metered.ca:3478?transport=udp",
         username: "openrelayproject",
         credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:3478",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:80?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:80?transport=udp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      {
-        urls: "turn:openrelay.metered.ca:80",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
-      // 5. Standard STUN Servers
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-      { urls: "stun:stun3.l.google.com:19302" },
-      { urls: "stun:stun4.l.google.com:19302" },
-      { urls: "stun:openrelay.metered.ca:80" }
+      }
     ];
 
     const envTurnUrl = (import.meta as any).env.VITE_TURN_URL;
@@ -657,16 +631,41 @@ export default function App() {
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: customIceServers,
-      iceCandidatePoolSize: 10
+      iceServers: customIceServers
     });
 
     pcRef.current = pc;
+
+    // Helper to query RTCPeerConnection statistics and explicitly log the active selected candidate pair
+    const logSelectedCandidatePair = async () => {
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && (report.state === "succeeded" || report.nominated)) {
+            const localCandidate = stats.get(report.localCandidateId);
+            const remoteCandidate = stats.get(report.remoteCandidateId);
+            if (localCandidate && remoteCandidate) {
+              console.log(
+                `%c[WEBRTC] Selected candidate pair active: ` +
+                `Local=[type=${localCandidate.candidateType} ip=${localCandidate.ip || localCandidate.address || "unknown"} port=${localCandidate.port || "unknown"} protocol=${localCandidate.protocol || "unknown"}] <-> ` +
+                `Remote=[type=${remoteCandidate.candidateType} ip=${remoteCandidate.ip || remoteCandidate.address || "unknown"} port=${remoteCandidate.port || "unknown"} protocol=${remoteCandidate.protocol || "unknown"}]`,
+                "color: #10b981; font-weight: bold; font-family: monospace; font-size: 11px;"
+              );
+            }
+          }
+        });
+      } catch (err) {
+        console.warn("[WEBRTC] Failed to fetch selected candidate pair stats:", err);
+      }
+    };
 
     // Monitor WebRTC states
     pc.oniceconnectionstatechange = () => {
       console.log(`[ICE] ICE Connection State changed to: ${pc.iceConnectionState}`);
       setWebrtcStatus(pc.iceConnectionState);
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        logSelectedCandidatePair();
+      }
       if (pc.iceConnectionState === "failed") {
         console.warn("[ICE] ICE Connection failed. Triggering ICE restart...");
         handleIceRestart(peerSocketId, isInitiator);
@@ -675,6 +674,9 @@ export default function App() {
     pc.onconnectionstatechange = () => {
       console.log(`[WEBRTC] PeerConnection State changed to: ${pc.connectionState}`);
       setWebrtcStatus(pc.connectionState);
+      if (pc.connectionState === "connected") {
+        logSelectedCandidatePair();
+      }
     };
     pc.onsignalingstatechange = () => {
       console.log(`[SIGNALING] Signaling State changed to: ${pc.signalingState}`);
@@ -760,7 +762,12 @@ export default function App() {
         const candidateStr = event.candidate.candidate;
         const typeMatch = candidateStr.match(/typ\s+(\w+)/);
         const candidateType = typeMatch ? typeMatch[1] : "unknown";
-        console.log(`[ICE] onicecandidate gathered: type=${candidateType} | ip=${event.candidate.address || "unknown"} | port=${event.candidate.port || "unknown"} | sdp="${candidateStr}"`);
+        
+        if (candidateType === "relay") {
+          console.log(`%c[TURN] [ICE] relay candidate generated: type=${candidateType} | ip=${event.candidate.address || "unknown"} | port=${event.candidate.port || "unknown"} | sdp="${candidateStr}"`, "color: #10b981; font-weight: bold;");
+        } else {
+          console.log(`[ICE] onicecandidate gathered: type=${candidateType} | ip=${event.candidate.address || "unknown"} | port=${event.candidate.port || "unknown"} | sdp="${candidateStr}"`);
+        }
 
         if (socketRef.current) {
           socketRef.current.emit("webrtc-signal", {
