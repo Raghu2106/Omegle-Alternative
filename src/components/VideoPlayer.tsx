@@ -72,19 +72,6 @@ export default function VideoPlayer({
     }
   }, []);
 
-  const handleRecoverAutoplay = () => {
-    setUserHasInteracted(true);
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.play()
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          console.error("Direct play recovery failed:", err);
-        });
-    }
-  };
-
   const localVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     localVideoRef.current = el;
     if (el && localStream) {
@@ -107,22 +94,23 @@ export default function VideoPlayer({
       }
       el.play()
         .then(() => {
-          setAutoplayBlocked((blocked) => {
-            if (blocked) return false;
-            return blocked;
-          });
+          setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Play call failed inside callback ref:", err);
-          if (!userHasInteracted) {
-            setAutoplayBlocked((blocked) => {
-              if (!blocked) return true;
-              return blocked;
-            });
+          console.warn("[VideoPlayer] Play call failed inside callback ref:, trying muted play fallback", err);
+          if (!el.muted) {
+            el.muted = true;
+            el.play()
+              .then(() => {
+                setAutoplayBlocked(false);
+              })
+              .catch((muteErr) => {
+                console.error("[VideoPlayer] Muted playback fallback failed in callback ref:", muteErr);
+              });
           }
         });
     }
-  }, [remoteStream, userHasInteracted]);
+  }, [remoteStream]);
 
   // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
   useEffect(() => {
@@ -214,49 +202,61 @@ export default function VideoPlayer({
   }, [localStream, layoutMode, cameraActive]);
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      // Re-assign srcObject to guarantee browser re-evaluates all tracks (audio/video) when added dynamically on Unified Plan
-      remoteVideoRef.current.srcObject = remoteStream;
-      remoteVideoRef.current.play()
+    const el = remoteVideoRef.current;
+    if (el && remoteStream) {
+      if (el.srcObject !== remoteStream) {
+        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect");
+        el.srcObject = remoteStream;
+      }
+      el.play()
         .then(() => {
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Autoplay was blocked/halted by browser:", err);
-          if (!userHasInteracted) {
-            setAutoplayBlocked(true);
+          console.warn("[VideoPlayer] Autoplay was blocked/halted in useEffect:", err);
+          if (!el.muted) {
+            el.muted = true;
+            el.play()
+              .then(() => {
+                setAutoplayBlocked(false);
+              })
+              .catch((muteErr) => {
+                console.error("[VideoPlayer] Muted playback fallback failed in useEffect:", muteErr);
+              });
           }
         });
     } else {
       setAutoplayBlocked(false);
     }
-  }, [remoteStream, remoteStreamVersion, layoutMode, isPaired, userHasInteracted]);
+  }, [remoteStream, remoteStreamVersion, layoutMode, isPaired]);
 
-  // Proactively listen for any document interaction to recover from autoplay blockages
+  // Proactively listen for any document interaction to fully unmute & play back the stranger's voice seamlessly
   useEffect(() => {
-    if (!autoplayBlocked || !remoteStream) return;
-
-    const tryPlay = () => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.play()
+    const tryUnmuteAndPlay = () => {
+      const el = remoteVideoRef.current;
+      if (el && remoteStream) {
+        if (el.muted) {
+          console.log("[VideoPlayer] Dynamic user interaction detected: Unmuting stranger stream audio feed...");
+          el.muted = false;
+        }
+        el.play()
           .then(() => {
-            console.log("[VideoPlayer] Autoplay successfully recovered via user interaction.");
             setAutoplayBlocked(false);
             setUserHasInteracted(true);
           })
           .catch((err) => {
-            console.warn("[VideoPlayer] User interaction play recovery attempt failed:", err);
+            console.log("[VideoPlayer] Gesture audio resume deferred:", err);
           });
       }
     };
 
     const events = ["click", "keydown", "mousedown", "touchstart"];
-    events.forEach((event) => document.addEventListener(event, tryPlay, { passive: true }));
+    events.forEach((event) => document.addEventListener(event, tryUnmuteAndPlay, { passive: true }));
 
     return () => {
-      events.forEach((event) => document.removeEventListener(event, tryPlay));
+      events.forEach((event) => document.removeEventListener(event, tryUnmuteAndPlay));
     };
-  }, [autoplayBlocked, remoteStream]);
+  }, [remoteStream]);
 
   if (mode === "text") {
     return (
@@ -380,12 +380,13 @@ export default function VideoPlayer({
         layout
         className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
-        {isPaired && (webrtcStatus === "connected" || webrtcStatus === "completed") && remoteStream ? (
+        {isPaired && remoteStream ? (
           <video
             id="remote-video"
             ref={remoteVideoCallback}
             autoPlay
             playsInline
+            muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
         ) : isPaired && remoteVideoFrame ? (
@@ -393,14 +394,6 @@ export default function VideoPlayer({
             src={remoteVideoFrame}
             className="w-full h-full object-cover bg-slate-950 select-none pointer-events-none"
             alt="Remote Stranger Feed"
-          />
-        ) : isPaired && remoteStream ? (
-          <video
-            id="remote-video"
-            ref={remoteVideoCallback}
-            autoPlay
-            playsInline
-            className="w-full h-full object-cover bg-slate-950"
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
@@ -428,32 +421,6 @@ export default function VideoPlayer({
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Autoplay blocked recovery overlay */}
-        {isPaired && remoteStream && autoplayBlocked && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md z-30 p-6 text-center">
-            <div className="space-y-4 max-w-xs bg-slate-900/90 p-6 rounded-2xl border border-slate-800 shadow-2xl">
-              <div className="mx-auto w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                <Mic className="w-5 h-5 animate-pulse" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-xs font-semibold text-white">Unmute stranger stream</h4>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  {isInsideIframe
-                    ? "Web browsers in iframe sandboxes require a user interaction to connect sound or video. Tap below to connect fully!"
-                    : "Modern browsers require a click or tap to allow audio/video playback from a secure stranger stream."}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleRecoverAutoplay}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all cursor-pointer"
-              >
-                Connect Voice & Video
-              </button>
-            </div>
           </div>
         )}
 
