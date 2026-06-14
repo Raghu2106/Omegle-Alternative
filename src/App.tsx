@@ -182,6 +182,20 @@ export default function App() {
               }
               pendingRemoteCandidatesRef.current = [];
             }
+          } else if (signal.requestOffer) {
+            console.log("[WebRTC Queue] Peer requested progressive SDP offer/renegotiate.");
+            if (isInitiatorRef.current && pc) {
+              try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socketRef.current?.emit("webrtc-signal", {
+                  to: from,
+                  signal: { offer }
+                });
+              } catch (err) {
+                console.error("[WebRTC] Failed to generate requestOffer SDP:", err);
+              }
+            }
           } else if (signal.candidate) {
             if (pc.remoteDescription && pc.remoteDescription.type) {
               console.log("[WebRTC Queue] Adding ICE candidate from:", from);
@@ -320,6 +334,7 @@ export default function App() {
   // Safe request camera/mic feeds
   const requestLocalStream = async (): Promise<MediaStream | null> => {
     setIsStreamLoading(true);
+    let resolvedStream: MediaStream | null = null;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -333,6 +348,7 @@ export default function App() {
       setLocalStream(stream);
       setCameraActive(true);
       setMicActive(true);
+      resolvedStream = stream;
       return stream;
     } catch (err) {
       console.warn("High-quality media stream denied, attempting standard video+audio fallback...", err);
@@ -342,6 +358,7 @@ export default function App() {
         setLocalStream(stream);
         setCameraActive(true);
         setMicActive(true);
+        resolvedStream = stream;
         return stream;
       } catch (err15) {
         console.warn("Standard video+audio fallback failed, attempting video-only/voice fallbacks...", err15);
@@ -352,6 +369,7 @@ export default function App() {
           setLocalStream(stream);
           setCameraActive(true);
           setMicActive(false);
+          resolvedStream = stream;
           return stream;
         } catch (err2) {
           try {
@@ -361,6 +379,7 @@ export default function App() {
             setLocalStream(stream);
             setCameraActive(false);
             setMicActive(true);
+            resolvedStream = stream;
             return stream;
           } catch (err3) {
             console.error("All camera and microphone hardware tracks denied entirely.", err3);
@@ -368,12 +387,67 @@ export default function App() {
             setLocalStream(null);
             setCameraActive(false);
             setMicActive(false);
+            resolvedStream = null;
             return null;
           }
         }
       }
     } finally {
       setIsStreamLoading(false);
+      if (resolvedStream) {
+        await syncLocalStreamWithPeerConnection(resolvedStream);
+      }
+    }
+  };
+
+  const syncLocalStreamWithPeerConnection = async (stream: MediaStream) => {
+    const pc = pcRef.current;
+    if (!pc) return;
+
+    console.log("[WebRTC] Synchronizing newly acquired local stream tracks with existing PeerConnection...");
+    let changed = false;
+    const senders = pc.getSenders();
+
+    for (const track of stream.getTracks()) {
+      const alreadyAdded = senders.some((s) => s.track === track);
+      if (!alreadyAdded) {
+        console.log(`[WebRTC] Attaching track ${track.kind} of local stream to existing PeerConnection.`);
+        try {
+          pc.addTrack(track, stream);
+          changed = true;
+        } catch (addError) {
+          console.warn("[WebRTC] Error adding track dynamically:", addError);
+        }
+      }
+    }
+
+    if (changed) {
+      await renegotiatePeerConnection();
+    }
+  };
+
+  const renegotiatePeerConnection = async () => {
+    const pc = pcRef.current;
+    if (!pc || !partnerIdRef.current) return;
+
+    if (isInitiatorRef.current) {
+      try {
+        console.log("[WebRTC] Creating renegotiation SDP offer...");
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socketRef.current?.emit("webrtc-signal", {
+          to: partnerIdRef.current,
+          signal: { offer }
+        });
+      } catch (err) {
+        console.error("[WebRTC] Failed to create renegotiation offer:", err);
+      }
+    } else {
+      console.log("[WebRTC] Requesting initiator to trigger renegotiation offer...");
+      socketRef.current?.emit("webrtc-signal", {
+        to: partnerIdRef.current,
+        signal: { requestOffer: true }
+      });
     }
   };
 

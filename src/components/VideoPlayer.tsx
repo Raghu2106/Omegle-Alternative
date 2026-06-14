@@ -83,6 +83,43 @@ export default function VideoPlayer({
     }
   };
 
+  const localVideoCallback = (el: HTMLVideoElement | null) => {
+    localVideoRef.current = el;
+    if (el) {
+      if (localStream) {
+        if (el.srcObject !== localStream) {
+          console.log("[VideoPlayer] Binding localStream to video element via callback ref");
+          el.srcObject = localStream;
+        }
+        el.play().catch((err) => {
+          console.warn("[VideoPlayer] Local video play failed in callback ref: ", err);
+        });
+      }
+    }
+  };
+
+  const remoteVideoCallback = (el: HTMLVideoElement | null) => {
+    remoteVideoRef.current = el;
+    if (el) {
+      if (remoteStream) {
+        if (el.srcObject !== remoteStream) {
+          console.log("[VideoPlayer] Binding remoteStream to video element via callback ref");
+          el.srcObject = remoteStream;
+        }
+        el.play()
+          .then(() => {
+            setAutoplayBlocked(false);
+          })
+          .catch((err) => {
+            console.warn("[VideoPlayer] Play call failed inside callback ref:", err);
+            if (!userHasInteracted) {
+              setAutoplayBlocked(true);
+            }
+          });
+      }
+    }
+  };
+
   // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
   useEffect(() => {
     const handleResize = () => {
@@ -342,7 +379,7 @@ export default function VideoPlayer({
         {isPaired && remoteStream ? (
           <video
             id="remote-video"
-            ref={remoteVideoRef}
+            ref={remoteVideoCallback}
             autoPlay
             playsInline
             className="w-full h-full object-cover bg-slate-950"
@@ -573,7 +610,7 @@ export default function VideoPlayer({
         {localStream && cameraActive ? (
           <video
             id="local-video"
-            ref={localVideoRef}
+            ref={localVideoCallback}
             autoPlay
             playsInline
             muted
