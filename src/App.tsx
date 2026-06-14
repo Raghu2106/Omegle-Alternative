@@ -146,54 +146,74 @@ export default function App() {
         try {
           if (signal.offer) {
             console.log("[WebRTC Queue] Processing offer from:", from);
-            await pc.setRemoteDescription(signal.offer);
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            socketRef.current?.emit("webrtc-signal", {
-              to: from,
-              signal: { answer }
-            });
+            let activePc = pcRef.current;
+            // If the responder's PeerConnection is failed, disconnected, or closed, we recreate it before applying
+            if (!activePc || activePc.connectionState === "failed" || activePc.connectionState === "disconnected" || activePc.connectionState === "closed") {
+              console.log("[WebRTC Queue] Receiver's PeerConnection is stale/failed. Re-instantiating responder connection before applying offer...");
+              await initiateWebRTCPeer(from, false);
+              activePc = pcRef.current;
+            }
+            if (activePc) {
+              await activePc.setRemoteDescription(signal.offer);
+              const answer = await activePc.createAnswer();
+              await activePc.setLocalDescription(answer);
+              socketRef.current?.emit("webrtc-signal", {
+                to: from,
+                signal: { answer }
+              });
 
-            // Process any stored candidates that were received before remote description was set
-            if (pendingRemoteCandidatesRef.current.length > 0) {
-              console.log("[WebRTC Queue] Remote description set (offer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
-              for (const cand of pendingRemoteCandidatesRef.current) {
-                try {
-                  await pc.addIceCandidate(new RTCIceCandidate(cand));
-                } catch (candidateErr) {
-                  console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+              // Process any stored candidates that were received before remote description was set
+              if (pendingRemoteCandidatesRef.current.length > 0) {
+                console.log("[WebRTC Queue] Remote description set (offer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
+                for (const cand of pendingRemoteCandidatesRef.current) {
+                  try {
+                    await activePc.addIceCandidate(new RTCIceCandidate(cand));
+                  } catch (candidateErr) {
+                    console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+                  }
                 }
+                pendingRemoteCandidatesRef.current = [];
               }
-              pendingRemoteCandidatesRef.current = [];
             }
           } else if (signal.answer) {
             console.log("[WebRTC Queue] Processing answer from:", from);
-            await pc.setRemoteDescription(signal.answer);
+            if (pc) {
+              await pc.setRemoteDescription(signal.answer);
 
-            // Process any stored candidates that were received before remote description was set
-            if (pendingRemoteCandidatesRef.current.length > 0) {
-              console.log("[WebRTC Queue] Remote description set (answer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
-              for (const cand of pendingRemoteCandidatesRef.current) {
-                try {
-                  await pc.addIceCandidate(new RTCIceCandidate(cand));
-                } catch (candidateErr) {
-                  console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+              // Process any stored candidates that were received before remote description was set
+              if (pendingRemoteCandidatesRef.current.length > 0) {
+                console.log("[WebRTC Queue] Remote description set (answer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
+                for (const cand of pendingRemoteCandidatesRef.current) {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(cand));
+                  } catch (candidateErr) {
+                    console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
+                  }
                 }
+                pendingRemoteCandidatesRef.current = [];
               }
-              pendingRemoteCandidatesRef.current = [];
             }
           } else if (signal.requestOffer) {
             console.log("[WebRTC Queue] Peer requested progressive SDP offer/renegotiate.");
-            if (isInitiatorRef.current && pc) {
-              try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socketRef.current?.emit("webrtc-signal", {
-                  to: from,
-                  signal: { offer }
-                });
-              } catch (err) {
-                console.error("[WebRTC] Failed to generate requestOffer SDP:", err);
+            if (isInitiatorRef.current) {
+              let activePc = pcRef.current;
+              // If the initiator's PeerConnection is failed/stale, recreate it to provide a clean offer
+              if (!activePc || activePc.connectionState === "failed" || activePc.connectionState === "disconnected" || activePc.connectionState === "closed") {
+                console.log("[WebRTC Queue] Initiator's PeerConnection is failed/stale. Re-initiating peer connection first...");
+                await initiateWebRTCPeer(from, true);
+                activePc = pcRef.current;
+              }
+              if (activePc) {
+                try {
+                  const offer = await activePc.createOffer();
+                  await activePc.setLocalDescription(offer);
+                  socketRef.current?.emit("webrtc-signal", {
+                    to: from,
+                    signal: { offer }
+                  });
+                } catch (err) {
+                  console.error("[WebRTC] Failed to generate requestOffer SDP:", err);
+                }
               }
             }
           } else if (signal.candidate) {
@@ -812,6 +832,15 @@ export default function App() {
       addSystemMessage("Re-negotiating peer association tracks...");
       setWebrtcStatus("connecting");
       await initiateWebRTCPeer(partnerIdRef.current, isInitiatorRef.current);
+      
+      // If we are the responder, we must trigger the initiator to generate and send a new SDP offer
+      if (!isInitiatorRef.current) {
+        console.log("[WebRTC] Non-initiating responder triggered retry. Dispatched requestOffer to initiator.");
+        socketRef.current?.emit("webrtc-signal", {
+          to: partnerIdRef.current,
+          signal: { requestOffer: true }
+        });
+      }
     } else {
       console.warn("[WebRTC] Cannot retry WebRTC transition, no active partner ID ref");
     }

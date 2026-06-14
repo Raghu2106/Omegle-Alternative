@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "motion/react";
 import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor, Maximize2, Minimize2, AlertCircle } from "lucide-react";
 
@@ -83,42 +83,44 @@ export default function VideoPlayer({
     }
   };
 
-  const localVideoCallback = (el: HTMLVideoElement | null) => {
+  const localVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     localVideoRef.current = el;
-    if (el) {
-      if (localStream) {
-        if (el.srcObject !== localStream) {
-          console.log("[VideoPlayer] Binding localStream to video element via callback ref");
-          el.srcObject = localStream;
-        }
-        el.play().catch((err) => {
-          console.warn("[VideoPlayer] Local video play failed in callback ref: ", err);
-        });
+    if (el && localStream) {
+      if (el.srcObject !== localStream) {
+        console.log("[VideoPlayer] Binding localStream to video element via callback ref");
+        el.srcObject = localStream;
       }
+      el.play().catch((err) => {
+        console.warn("[VideoPlayer] Local video play failed in callback ref: ", err);
+      });
     }
-  };
+  }, [localStream]);
 
-  const remoteVideoCallback = (el: HTMLVideoElement | null) => {
+  const remoteVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoRef.current = el;
-    if (el) {
-      if (remoteStream) {
-        if (el.srcObject !== remoteStream) {
-          console.log("[VideoPlayer] Binding remoteStream to video element via callback ref");
-          el.srcObject = remoteStream;
-        }
-        el.play()
-          .then(() => {
-            setAutoplayBlocked(false);
-          })
-          .catch((err) => {
-            console.warn("[VideoPlayer] Play call failed inside callback ref:", err);
-            if (!userHasInteracted) {
-              setAutoplayBlocked(true);
-            }
-          });
+    if (el && remoteStream) {
+      if (el.srcObject !== remoteStream) {
+        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref");
+        el.srcObject = remoteStream;
       }
+      el.play()
+        .then(() => {
+          setAutoplayBlocked((blocked) => {
+            if (blocked) return false;
+            return blocked;
+          });
+        })
+        .catch((err) => {
+          console.warn("[VideoPlayer] Play call failed inside callback ref:", err);
+          if (!userHasInteracted) {
+            setAutoplayBlocked((blocked) => {
+              if (!blocked) return true;
+              return blocked;
+            });
+          }
+        });
     }
-  };
+  }, [remoteStream, userHasInteracted]);
 
   // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
   useEffect(() => {
@@ -423,7 +425,9 @@ export default function VideoPlayer({
               <div className="space-y-1">
                 <h4 className="text-xs font-semibold text-white">Unmute stranger stream</h4>
                 <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Web browsers in iframe sandboxes require a user interaction to connect sound or video. Tap below to connect fully!
+                  {isInsideIframe
+                    ? "Web browsers in iframe sandboxes require a user interaction to connect sound or video. Tap below to connect fully!"
+                    : "Modern browsers require a click or tap to allow audio/video playback from a secure stranger stream."}
                 </p>
               </div>
               <button
