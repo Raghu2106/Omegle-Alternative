@@ -165,9 +165,7 @@ export default function VideoPlayer({
   // Keep references updated
   useEffect(() => {
     if (localVideoRef.current && localStream) {
-      if (localVideoRef.current.srcObject !== localStream) {
-        localVideoRef.current.srcObject = localStream;
-      }
+      localVideoRef.current.srcObject = localStream;
       localVideoRef.current.play().catch((err) => {
         console.warn("[VideoPlayer] Local video play failed: ", err);
       });
@@ -176,9 +174,8 @@ export default function VideoPlayer({
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      if (remoteVideoRef.current.srcObject !== remoteStream) {
-        remoteVideoRef.current.srcObject = remoteStream;
-      }
+      // Re-assign srcObject to guarantee browser re-evaluates all tracks (audio/video) when added dynamically on Unified Plan
+      remoteVideoRef.current.srcObject = remoteStream;
       remoteVideoRef.current.play()
         .then(() => {
           setAutoplayBlocked(false);
@@ -345,24 +342,7 @@ export default function VideoPlayer({
         {isPaired && remoteStream ? (
           <video
             id="remote-video"
-            ref={(el) => {
-              remoteVideoRef.current = el;
-              if (el && remoteStream) {
-                if (el.srcObject !== remoteStream) {
-                  el.srcObject = remoteStream;
-                }
-                el.play()
-                  .then(() => {
-                    setAutoplayBlocked(false);
-                  })
-                  .catch((err) => {
-                    console.warn("[VideoPlayer] remote play attempt blocked:", err);
-                    if (!userHasInteracted) {
-                      setAutoplayBlocked(true);
-                    }
-                  });
-              }
-            }}
+            ref={remoteVideoRef}
             autoPlay
             playsInline
             className="w-full h-full object-cover bg-slate-950"
@@ -593,17 +573,7 @@ export default function VideoPlayer({
         {localStream && cameraActive ? (
           <video
             id="local-video"
-            ref={(el) => {
-              localVideoRef.current = el;
-              if (el && localStream) {
-                if (el.srcObject !== localStream) {
-                  el.srcObject = localStream;
-                }
-                el.play().catch((err) => {
-                  console.warn("[VideoPlayer] local play attempt failed:", err);
-                });
-              }
-            }}
+            ref={localVideoRef}
             autoPlay
             playsInline
             muted

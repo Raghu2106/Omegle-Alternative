@@ -492,30 +492,37 @@ export default function App() {
       
       if (event.streams && event.streams[0]) {
         const inboundStream = event.streams[0];
-        setRemoteStream(inboundStream);
+        // Create a new MediaStream wrapper to force reference change in React state.
+        // This guarantees that when a second track (e.g., video track after audio track) is added,
+        // React immediately updates component bindings instead of short-circuiting on equal object referential checks.
+        setRemoteStream(new MediaStream(inboundStream.getTracks()));
         setRemoteStreamVersion((v) => v + 1);
 
         // Bind listeners to trigger updates if the browser adds another track (e.g. video following audio) dynamically
         inboundStream.onaddtrack = (trackEvent) => {
           console.log("[WebRTC] Dynamic track added to active stranger stream:", trackEvent.track.kind);
+          setRemoteStream(new MediaStream(inboundStream.getTracks()));
           setRemoteStreamVersion((v) => v + 1);
         };
         inboundStream.onremovetrack = () => {
+          setRemoteStream(new MediaStream(inboundStream.getTracks()));
           setRemoteStreamVersion((v) => v + 1);
         };
       } else {
         // Fallback for custom clients that send raw tracks without stream containers
         setRemoteStream((prev) => {
-          let updatedStream = prev;
           if (!prev) {
-            updatedStream = new MediaStream([event.track]);
+            const nextStream = new MediaStream([event.track]);
+            setRemoteStreamVersion((v) => v + 1);
+            return nextStream;
           } else {
             if (!prev.getTracks().some((t) => t.id === event.track.id)) {
               prev.addTrack(event.track);
             }
+            const nextStream = new MediaStream(prev.getTracks());
+            setRemoteStreamVersion((v) => v + 1);
+            return nextStream;
           }
-          setRemoteStreamVersion((v) => v + 1);
-          return updatedStream;
         });
       }
     };
