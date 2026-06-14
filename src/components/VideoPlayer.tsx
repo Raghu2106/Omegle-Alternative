@@ -296,30 +296,14 @@ export default function VideoPlayer({
       </div>
 
       {/* STRANGER VIEW BLOCK */}
-      <div 
+      <motion.div 
+        layout
         className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
         {isPaired && remoteStream ? (
           <video
             id="remote-video"
-            ref={(el) => {
-              remoteVideoRef.current = el;
-              if (el) {
-                if (el.srcObject !== remoteStream) {
-                  el.srcObject = remoteStream;
-                }
-                el.play()
-                  .then(() => {
-                    setAutoplayBlocked(false);
-                  })
-                  .catch((err) => {
-                    console.warn("[RemoteVideoRef] play failed:", err);
-                    if (!userHasInteracted) {
-                      setAutoplayBlocked(true);
-                    }
-                  });
-              }
-            }}
+            ref={remoteVideoRef}
             autoPlay
             playsInline
             className="w-full h-full object-cover bg-slate-950"
@@ -378,7 +362,7 @@ export default function VideoPlayer({
         )}
 
         {/* WebRTC Failed Troubleshooting Overlay */}
-        {isPaired && (webrtcStatus === "failed" || webrtcStatus === "disconnected") && (
+        {isPaired && webrtcStatus === "failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm z-30 p-4 text-center">
             <div className="space-y-3.5 max-w-sm bg-slate-900 border border-rose-500/30 p-5 rounded-2xl shadow-2xl text-left">
               <div className="mx-auto w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
@@ -427,12 +411,11 @@ export default function VideoPlayer({
           }`} />
           Stranger Live {webrtcStatus && webrtcStatus !== "idle" && `(${webrtcStatus})`}
         </div>
-      </div>
-
+      </motion.div>
+ 
       {/* LOCAL USER VIEW BLOCK */}
       <motion.div 
-        key={layoutMode}
-        layout={layoutMode === "pip"}
+        layout
         transition={{
           type: "spring",
           stiffness: 450,
@@ -455,17 +438,7 @@ export default function VideoPlayer({
         {localStream && cameraActive ? (
           <video
             id="local-video"
-            ref={(el) => {
-              localVideoRef.current = el;
-              if (el) {
-                if (el.srcObject !== localStream) {
-                  el.srcObject = localStream;
-                }
-                el.play().catch((err) => {
-                  console.warn("[LocalVideoRef] play failed:", err);
-                });
-              }
-            }}
+            ref={localVideoRef}
             autoPlay
             playsInline
             muted
