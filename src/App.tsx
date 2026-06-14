@@ -75,6 +75,7 @@ export default function App() {
   const [isStreamLoading, setIsStreamLoading] = useState(false);
   const [webrtcStatus, setWebrtcStatus] = useState<string>("idle");
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null);
+  const [showSocketFallback, setShowSocketFallback] = useState<boolean>(false);
 
   // References
   const socketRef = useRef<Socket | null>(null);
@@ -126,6 +127,36 @@ export default function App() {
     }
   }, [appState, interests]);
 
+  // Delay/gate custom WebSocket media relaying from starting during initial setup to keep candidate channels clear
+  useEffect(() => {
+    if (appState !== "paired" || mode !== "video") {
+      setShowSocketFallback(false);
+      return;
+    }
+
+    // Stop manual fallback immediately if standard PeerConnection succeeds
+    if (webrtcStatus === "connected" || webrtcStatus === "completed") {
+      setShowSocketFallback(false);
+      return;
+    }
+
+    // Activate immediately if standard PeerConnection explicitly reports failure
+    if (webrtcStatus === "failed") {
+      setShowSocketFallback(true);
+      return;
+    }
+
+    // Allow a 6-second grace period for WebRTC peers to establish a P2P connection with 100% clean socket bandwidth
+    const timer = setTimeout(() => {
+      if (webrtcStatus !== "connected" && webrtcStatus !== "completed") {
+        console.log("[MediaRelay] WebRTC connection did not establish within 6 seconds. Activating WebSocket media fallback.");
+        setShowSocketFallback(true);
+      }
+    }, 6000);
+
+    return () => clearTimeout(timer);
+  }, [appState, mode, webrtcStatus]);
+
   // Seamless Custom Socket-based Media Relaying & Fallback Engine
   useEffect(() => {
     let videoIntervalId: any = null;
@@ -134,8 +165,8 @@ export default function App() {
     const currentPartner = partnerId;
     const socket = socketRef.current;
     
-    // We only stream if paired, in video mode, and socket is active
-    if (appState !== "paired" || mode !== "video" || !currentPartner || !socket) {
+    // We only stream if paired, video mode is active, socket is up, AND fallback has been explicitly triggered
+    if (appState !== "paired" || mode !== "video" || !currentPartner || !socket || !showSocketFallback) {
       return;
     }
 
@@ -163,7 +194,7 @@ export default function App() {
         if (localVideoEl && !localVideoEl.paused && !localVideoEl.ended && ctx) {
           try {
             ctx.drawImage(localVideoEl, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.4); // highly compressed
+            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.35); // highly compressed
             socket.emit("webrtc-signal", {
               to: currentPartner,
               signal: { mediaFrame: base64Frame }
@@ -172,7 +203,7 @@ export default function App() {
             console.warn("[MediaRelay] Error rendering local video frame:", e);
           }
         }
-      }, 85);
+      }, 180); // optimized slide-stream rate (~5.5 fps) to save considerable bandwidth when fallback is active
     }
 
     // 2. Audio chunks capturing/encoding (running in 250ms chunks)
@@ -216,7 +247,7 @@ export default function App() {
           };
 
           audioRecorder = recorder;
-          recorder.start(250); // Emit audio slices every 250ms
+          recorder.start(350); // Emit audio slices every 350ms to minimize WebSocket transmission packet spikes
         } catch (recorderErr) {
           console.error("[MediaRelay] Failed to bootstrap custom audio recorder fallback:", recorderErr);
         }
@@ -236,7 +267,7 @@ export default function App() {
         }
       }
     };
-  }, [appState, partnerId, mode, cameraActive, micActive, localStream, webrtcStatus]);
+  }, [appState, partnerId, mode, cameraActive, micActive, localStream, webrtcStatus, showSocketFallback]);
 
   // Process queued WebRTC signaling messages safely and sequentially (FIFO) to prevent concurrent state collisions
   const processSequentialQueue = async () => {
@@ -269,8 +300,14 @@ export default function App() {
             if (activePc) {
               console.log("[SIGNALING] Calling setRemoteDescription with remote offer");
               try {
-                await activePc.setRemoteDescription(signal.offer);
-                console.log("[SIGNALING] setRemoteDescription (offer) succeeded");
+                // Boost content quality and buffer limits of received offer
+                const optimizedSdp = setMediaBitrates(signal.offer.sdp, 2500, 128);
+                const remoteOfferSpec = new RTCSessionDescription({
+                  type: "offer",
+                  sdp: optimizedSdp
+                });
+                await activePc.setRemoteDescription(remoteOfferSpec);
+                console.log("[SIGNALING] setRemoteDescription (offer) succeeded with boosted bitrates");
               } catch (err) {
                 console.error("[SIGNALING] setRemoteDescription (offer) failed:", err);
                 throw err;
@@ -279,7 +316,11 @@ export default function App() {
               console.log("[SIGNALING] Calling createAnswer");
               let answer;
               try {
-                answer = await activePc.createAnswer();
+                // Explicitly request audio & video receiving capabilities
+                answer = await activePc.createAnswer({
+                  offerToReceiveAudio: true,
+                  offerToReceiveVideo: true
+                });
                 console.log("[SIGNALING] createAnswer succeeded:", answer);
               } catch (err) {
                 console.error("[SIGNALING] createAnswer failed:", err);
@@ -288,16 +329,27 @@ export default function App() {
 
               console.log("[SIGNALING] Calling setLocalDescription with generated answer");
               try {
-                await activePc.setLocalDescription(answer);
-                console.log("[SIGNALING] setLocalDescription (answer) succeeded");
+                // Custom boost answer SDP quality configurations
+                const optimizedSdp = setMediaBitrates(answer.sdp!, 2500, 128);
+                const localAnswerSpec = new RTCSessionDescription({
+                  type: "answer",
+                  sdp: optimizedSdp
+                });
+                await activePc.setLocalDescription(localAnswerSpec);
+                console.log("[SIGNALING] setLocalDescription (answer) succeeded with boosted bitrates");
               } catch (err) {
                 console.error("[SIGNALING] setLocalDescription (answer) failed:", err);
                 throw err;
               }
 
+              // Send the high-quality SDP Answer back
+              const finalAnswerToSend = {
+                type: "answer",
+                sdp: setMediaBitrates(answer.sdp!, 2500, 128)
+              };
               socketRef.current?.emit("webrtc-signal", {
                 to: from,
-                signal: { answer }
+                signal: { answer: finalAnswerToSend }
               });
 
               // Process any stored candidates that were received before remote description was set
@@ -331,8 +383,14 @@ export default function App() {
             if (pc) {
               console.log("[SIGNALING] Calling setRemoteDescription with remote answer");
               try {
-                await pc.setRemoteDescription(signal.answer);
-                console.log("[SIGNALING] setRemoteDescription (answer) succeeded");
+                // Boost description values for received answer
+                const optimizedSdp = setMediaBitrates(signal.answer.sdp, 2500, 128);
+                const remoteAnswerSpec = new RTCSessionDescription({
+                  type: "answer",
+                  sdp: optimizedSdp
+                });
+                await pc.setRemoteDescription(remoteAnswerSpec);
+                console.log("[SIGNALING] setRemoteDescription (answer) succeeded with boosted bitrates");
               } catch (err) {
                 console.error("[SIGNALING] setRemoteDescription (answer) failed:", err);
                 throw err;
@@ -723,6 +781,38 @@ export default function App() {
     setMicActive(false);
   };
 
+  // SDP bandwidth/bitrate modifier to lock in crystal-clear high-definition video and robust stereo audio
+  const setMediaBitrates = (sdp: string, videoBitrateKbps: number, audioBitrateKbps: number): string => {
+    let lines = sdp.split("\r\n");
+    let modifiedSdp = "";
+    let isVideoSection = false;
+    let isAudioSection = false;
+
+    for (let line of lines) {
+      if (line.startsWith("m=video")) {
+        isVideoSection = true;
+        isAudioSection = false;
+      } else if (line.startsWith("m=audio")) {
+        isVideoSection = true;
+        isAudioSection = true;
+      } else if (line.startsWith("m=")) {
+        isVideoSection = false;
+        isAudioSection = false;
+      }
+
+      modifiedSdp += line + "\r\n";
+
+      // Insert bandwidth limit AS (Application Specific/Kbps) if not already declared in sdp description
+      if (line.startsWith("m=video") && !sdp.includes("b=AS:") && !sdp.includes("b=TIAS:")) {
+        modifiedSdp += `b=AS:${videoBitrateKbps}\r\n`;
+      }
+      if (line.startsWith("m=audio") && !sdp.includes("b=AS:") && !sdp.includes("b=TIAS:")) {
+        modifiedSdp += `b=AS:${audioBitrateKbps}\r\n`;
+      }
+    }
+    return modifiedSdp;
+  };
+
   // WebRTC Peer connection signaling & establishment
   const initiateWebRTCPeer = async (peerSocketId: string, isInitiator: boolean) => {
     // Clean existing peer connection and remote stream without resetting the partner ID
@@ -944,13 +1034,22 @@ export default function App() {
         });
         console.log("[SIGNALING] Initiator: createOffer succeeded:", offer);
         
-        console.log("[SIGNALING] Initiator: Calling setLocalDescription");
-        await pc.setLocalDescription(offer);
+        console.log("[SIGNALING] Initiator: Calling setLocalDescription with optimized SDP bitrates");
+        const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
+        const localOfferSpec = new RTCSessionDescription({
+          type: "offer",
+          sdp: optimizedSdp
+        });
+        await pc.setLocalDescription(localOfferSpec);
         console.log("[SIGNALING] Initiator: setLocalDescription success");
 
+        const finalOfferToSend = {
+          type: "offer",
+          sdp: optimizedSdp
+        };
         socketRef.current?.emit("webrtc-signal", {
           to: peerSocketId,
-          signal: { offer }
+          signal: { offer: finalOfferToSend }
         });
       } catch (err) {
         console.error("[SIGNALING] Initiator: Failed to create/set local SDP offer:", err);
@@ -965,11 +1064,26 @@ export default function App() {
     if (isInitiator) {
       try {
         console.log("[WebRTC] Attempting ICE restart...");
-        const offer = await pc.createOffer({ iceRestart: true });
-        await pc.setLocalDescription(offer);
+        const offer = await pc.createOffer({
+          iceRestart: true,
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
+        
+        const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
+        const localRestartOfferSpec = new RTCSessionDescription({
+          type: "offer",
+          sdp: optimizedSdp
+        });
+        await pc.setLocalDescription(localRestartOfferSpec);
+
+        const finalOfferToSend = {
+          type: "offer",
+          sdp: optimizedSdp
+        };
         socketRef.current?.emit("webrtc-signal", {
           to: peerSocketId,
-          signal: { offer }
+          signal: { offer: finalOfferToSend }
         });
         addSystemMessage("Re-routing connection path...");
       } catch (err) {
