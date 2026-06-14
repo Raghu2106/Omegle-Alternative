@@ -48,10 +48,15 @@ export default function VideoPlayer({
   const [isInsideIframe, setIsInsideIframe] = useState(false);
 
   useEffect(() => {
-    setIsInsideIframe(
-      typeof window !== "undefined" && 
-      window.self !== window.top
-    );
+    try {
+      setIsInsideIframe(
+        typeof window !== "undefined" && 
+        window.self !== window.top
+      );
+    } catch (e) {
+      console.warn("[VideoPlayer] Sandbox iframe restricted top-level access, assuming inside iframe.", e);
+      setIsInsideIframe(true);
+    }
   }, []);
 
   const handleRecoverAutoplay = () => {

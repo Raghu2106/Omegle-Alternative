@@ -35,10 +35,15 @@ export default function App() {
   const [isInsideIframe, setIsInsideIframe] = useState(false);
 
   useEffect(() => {
-    setIsInsideIframe(
-      typeof window !== "undefined" && 
-      window.self !== window.top
-    );
+    try {
+      setIsInsideIframe(
+        typeof window !== "undefined" && 
+        window.self !== window.top
+      );
+    } catch (e) {
+      console.warn("[App] Sandbox iframe restricted top-level access, assuming inside iframe.", e);
+      setIsInsideIframe(true);
+    }
   }, []);
 
   // Multi-user & Pairing state machine
@@ -679,7 +684,7 @@ export default function App() {
   };
 
   // Inline Toggles for mic & video tracks
-  const handleToggleCamera = () => {
+  const handleToggleCamera = async () => {
     if (localStream) {
       const videoTracks = localStream.getVideoTracks();
       if (videoTracks.length > 0) {
@@ -687,11 +692,15 @@ export default function App() {
         videoTracks[0].enabled = nextState;
         setCameraActive(nextState);
         trackEvent("toggle_camera", { enabled: nextState });
+      } else {
+        await requestLocalStream();
       }
+    } else {
+      await requestLocalStream();
     }
   };
 
-  const handleToggleMic = () => {
+  const handleToggleMic = async () => {
     if (localStream) {
       const audioTracks = localStream.getAudioTracks();
       if (audioTracks.length > 0) {
@@ -699,7 +708,11 @@ export default function App() {
         audioTracks[0].enabled = nextState;
         setMicActive(nextState);
         trackEvent("toggle_mic", { enabled: nextState });
+      } else {
+        await requestLocalStream();
       }
+    } else {
+      await requestLocalStream();
     }
   };
 
