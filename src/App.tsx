@@ -125,7 +125,7 @@ export default function App() {
         try {
           if (signal.offer) {
             console.log("[WebRTC Queue] Processing offer from:", from);
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+            await pc.setRemoteDescription(signal.offer);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             socketRef.current?.emit("webrtc-signal", {
@@ -138,7 +138,7 @@ export default function App() {
               console.log("[WebRTC Queue] Remote description set (offer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
               for (const cand of pendingRemoteCandidatesRef.current) {
                 try {
-                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                  await pc.addIceCandidate(cand);
                 } catch (candidateErr) {
                   console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
                 }
@@ -147,14 +147,14 @@ export default function App() {
             }
           } else if (signal.answer) {
             console.log("[WebRTC Queue] Processing answer from:", from);
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+            await pc.setRemoteDescription(signal.answer);
 
             // Process any stored candidates that were received before remote description was set
             if (pendingRemoteCandidatesRef.current.length > 0) {
               console.log("[WebRTC Queue] Remote description set (answer). Loading stored candidates:", pendingRemoteCandidatesRef.current.length);
               for (const cand of pendingRemoteCandidatesRef.current) {
                 try {
-                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                  await pc.addIceCandidate(cand);
                 } catch (candidateErr) {
                   console.warn("[WebRTC Queue] Error adding stored candidate:", candidateErr);
                 }
@@ -164,7 +164,7 @@ export default function App() {
           } else if (signal.candidate) {
             if (pc.remoteDescription && pc.remoteDescription.type) {
               console.log("[WebRTC Queue] Adding ICE candidate from:", from);
-              await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+              await pc.addIceCandidate(signal.candidate);
             } else {
               console.log("[WebRTC Queue] Storing raw ICE candidate to process post RemoteDescription establish:", signal.candidate);
               pendingRemoteCandidatesRef.current.push(signal.candidate);
@@ -1020,7 +1020,7 @@ export default function App() {
               >
                 {/* Media pane (left column: custom video feed, only shown in video mode!) */}
                 {mode === "video" && (
-                  <div className="w-[124px] h-[174px] sm:w-[160px] sm:h-[224px] lg:h-full lg:w-full absolute top-[52px] sm:top-[68px] right-2 sm:right-4 z-40 rounded-2xl overflow-hidden shadow-xl border border-slate-800 lg:relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none flex flex-col shrink-0 min-h-0">
+                  <div className="h-[200px] xs:h-[240px] sm:h-[280px] md:h-[320px] lg:h-full w-full relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none border-b border-slate-800/80 flex flex-col shrink-0 min-h-0">
                     <VideoPlayer
                       localStream={localStream}
                       remoteStream={remoteStream}
@@ -1038,7 +1038,7 @@ export default function App() {
                 )}
 
                 {/* Chat pane (right column or full width depending on mode) */}
-                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "h-full w-full flex flex-col min-h-0 overflow-hidden"}>
+                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-auto lg:h-full w-full flex flex-col min-h-0 overflow-hidden"}>
                   <ChatPanel
                     messages={messages}
                     isSearching={appState === "searching"}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor, Maximize2, Minimize2 } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor, Maximize2, Minimize2, AlertCircle } from "lucide-react";
 
 interface VideoPlayerProps {
   localStream: MediaStream | null;
@@ -122,17 +122,7 @@ export default function VideoPlayer({
     }
   };
 
-  // Automatically start with PiP mode on mobile and tablet screens for optimal visual space
-  useEffect(() => {
-    const handleResize = () => {
-      if (typeof window !== "undefined" && window.innerWidth < 1024) {
-        setLayoutMode("pip");
-      }
-    };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+
 
   // Keep references updated
   useEffect(() => {
@@ -249,45 +239,45 @@ export default function VideoPlayer({
     <div ref={containerRef} className={getContainerClassName()}>
       
       {/* Floating Layout Selector HUD Tag */}
-      <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 sm:p-1 hidden lg:flex items-center gap-0.5 sm:gap-1 shadow-xl">
+      <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 flex items-center gap-0.5 shadow-xl">
         <button
           type="button"
           onClick={() => setLayoutMode("grid")}
-          className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+          className={`flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg transition-all cursor-pointer ${
             layoutMode === "grid"
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           }`}
           title="Equal Split (Up and Down)"
         >
-          <Layers className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Up and Down</span>
+          <Layers className="w-3" />
+          <span className="hidden xs:inline sm:inline">Up/Down</span>
         </button>
         <button
           type="button"
           onClick={() => setLayoutMode("enlarged")}
-          className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+          className={`flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg transition-all cursor-pointer ${
             layoutMode === "enlarged"
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           }`}
           title="Side-by-Side View"
         >
-          <Grid className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Side-by-Side</span>
+          <Grid className="w-3" />
+          <span className="hidden xs:inline sm:inline">Side/Side</span>
         </button>
         <button
           type="button"
           onClick={() => setLayoutMode("pip")}
-          className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+          className={`flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg transition-all cursor-pointer ${
             layoutMode === "pip"
               ? "bg-indigo-600 text-white"
               : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
           }`}
           title="Overlay (PIP)"
         >
-          <Monitor className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Overlay (PIP)</span>
+          <Monitor className="w-3" />
+          <span className="hidden xs:inline sm:inline">Overlay</span>
         </button>
       </div>
 
@@ -369,6 +359,45 @@ export default function VideoPlayer({
               >
                 Connect Voice & Video
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* WebRTC Failed Troubleshooting Overlay */}
+        {isPaired && (webrtcStatus === "failed" || webrtcStatus === "disconnected") && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm z-30 p-4 text-center">
+            <div className="space-y-3.5 max-w-sm bg-slate-900 border border-rose-500/30 p-5 rounded-2xl shadow-2xl text-left">
+              <div className="mx-auto w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                <AlertCircle className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="space-y-1 text-center">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">WebRTC Connection Blocked</h4>
+                <p className="text-[10px] text-slate-400 leading-normal">
+                  Google Chrome prevents custom Peer-to-Peer (P2P) signaling when running inside a sandboxed preview frame.
+                </p>
+              </div>
+              <div className="text-[10px] text-slate-350 bg-slate-950/50 p-3 rounded-xl border border-slate-800 space-y-1.5 leading-relaxed">
+                <div className="flex gap-1.5">
+                  <span className="text-indigo-400 font-extrabold shrink-0">1.</span>
+                  <span>Click the <strong>Open in New Tab</strong> button on the top-right of your screen.</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <span className="text-indigo-400 font-extrabold shrink-0">2.</span>
+                  <span>Select <strong>Webcam Video & Voice</strong> mode to engage your devices.</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <span className="text-indigo-400 font-extrabold shrink-0">3.</span>
+                  <span>Testing alone? Use a <strong>different browser or device</strong> (as most webcams only feed into one active tab at once).</span>
+                </div>
+              </div>
+              <a
+                href={typeof window !== "undefined" ? window.location.href : "#"}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="block text-center w-full bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all select-none"
+              >
+                Open in a Secure New Tab ↗
+              </a>
             </div>
           </div>
         )}
