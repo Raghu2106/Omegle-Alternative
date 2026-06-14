@@ -33,6 +33,19 @@ export default function VideoPlayer({
   const [layoutMode, setLayoutMode] = useState<"grid" | "enlarged" | "pip">("grid");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVirtualFullscreen, setIsVirtualFullscreen] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+
+  const handleRecoverAutoplay = () => {
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.play()
+        .then(() => {
+          setAutoplayBlocked(false);
+        })
+        .catch((err) => {
+          console.error("Direct play recovery failed:", err);
+        });
+    }
+  };
 
   // Monitor browser fullscreen state change
   useEffect(() => {
@@ -114,6 +127,16 @@ export default function VideoPlayer({
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play()
+        .then(() => {
+          setAutoplayBlocked(false);
+        })
+        .catch((err) => {
+          console.warn("[VideoPlayer] Autoplay was blocked/halted by browser:", err);
+          setAutoplayBlocked(true);
+        });
+    } else {
+      setAutoplayBlocked(false);
     }
   }, [remoteStream, layoutMode, isPaired]);
 
@@ -259,6 +282,30 @@ export default function VideoPlayer({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Autoplay blocked recovery overlay */}
+        {isPaired && remoteStream && autoplayBlocked && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md z-30 p-6 text-center">
+            <div className="space-y-4 max-w-xs bg-slate-900/90 p-6 rounded-2xl border border-slate-800 shadow-2xl">
+              <div className="mx-auto w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                <Mic className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-semibold text-white">Unmute stranger stream</h4>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Web browsers in iframe sandboxes require a user interaction to connect sound or video. Tap below to connect fully!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRecoverAutoplay}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all cursor-pointer"
+              >
+                Connect Voice & Video
+              </button>
+            </div>
           </div>
         )}
 

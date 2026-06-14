@@ -299,7 +299,6 @@ export default function ChatPanel({
             
             {/* Dynamic Adsterra unit in Lobby area */}
             <div className="flex flex-col items-center gap-1 py-1 text-center bg-white border border-slate-100 p-2 rounded-xl shadow-3xs max-w-[320px]">
-              <span className="text-[8px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
               <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-lg shadow-2xs border border-slate-50" />
             </div>
           </div>

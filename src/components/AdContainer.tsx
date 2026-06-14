@@ -19,7 +19,6 @@ export default function AdContainer({ idKey, format = "iframe", height, width, c
         className={`relative flex flex-col items-center justify-center text-center overflow-hidden shrink-0 bg-slate-50 border border-dashed border-slate-200 rounded-lg p-1 ${className}`}
         style={{ width: `${width}px`, height: `${height}px` }}
       >
-        <span className="text-[8px] font-extrabold text-slate-400 tracking-wider uppercase leading-none">Sponsored</span>
         <span className="text-[9px] font-semibold text-indigo-500 block leading-tight mt-0.5">{placeholderLabel || "Waiting for unit key"}</span>
         <span className="text-[8px] text-slate-400 font-mono mt-0.5 leading-none">{width} x {height}</span>
       </div>

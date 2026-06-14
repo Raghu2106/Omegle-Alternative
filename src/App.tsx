@@ -403,9 +403,22 @@ export default function App() {
 
     // Handle receiving incoming track
     pc.ontrack = (event) => {
-      console.log("[WebRTC] Track detected:", event.streams);
+      console.log("[WebRTC] Track detected:", event.track, event.streams);
       if (event.streams && event.streams[0]) {
-        setRemoteStream(event.streams[0]);
+        // Create a new MediaStream from the tracks because reference-equality prevents React re-render when more tracks (audio and video) are dynamically added.
+        setRemoteStream(new MediaStream(event.streams[0].getTracks()));
+      } else {
+        // Fallback: build a media stream on the fly from the individual track
+        setRemoteStream((prev) => {
+          if (prev) {
+            const tracks = prev.getTracks();
+            if (!tracks.some((t) => t.id === event.track.id)) {
+              return new MediaStream([...tracks, event.track]);
+            }
+            return prev;
+          }
+          return new MediaStream([event.track]);
+        });
       }
     };
 
@@ -651,7 +664,7 @@ export default function App() {
               className="flex-grow flex-1 w-full max-w-[1300px] mx-auto flex flex-row items-center justify-center py-8 px-4 gap-6"
             >
               {/* Left Skyscraper banner */}
-              <div className="hidden xl:flex fixed left-0 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-l-0 border-slate-200 bg-white shadow-xs text-center select-none overflow-hidden z-40">
+              <div className="hidden xl:flex fixed left-5 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-slate-200 rounded-2xl bg-white shadow-md text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
 
@@ -869,7 +882,6 @@ export default function App() {
 
                   {/* Dynamic Adsterra Right Column Rectangular Ad Banner */}
                   <div className="flex flex-col items-center gap-1.5 py-1 text-center select-none shadow-3xs rounded-xl bg-white border border-slate-100 p-2">
-                    <span className="text-[9px] font-extrabold text-slate-400 tracking-widest uppercase">Sponsored</span>
                     <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-xl border border-slate-100 bg-white shadow-2xs" />
                   </div>
                 </div>
@@ -877,7 +889,7 @@ export default function App() {
               </div>
 
               {/* Right Skyscraper banner */}
-              <div className="hidden xl:flex fixed right-0 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-r-0 border-slate-200 bg-white shadow-xs text-center select-none overflow-hidden z-40">
+              <div className="hidden xl:flex fixed right-5 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-slate-200 rounded-2xl bg-white shadow-md text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
             </motion.div>
@@ -893,7 +905,6 @@ export default function App() {
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
-                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Sponsored</span>
                 <div className="flex-grow flex items-center justify-center overflow-hidden w-full">
                   <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
                 </div>
@@ -953,7 +964,6 @@ export default function App() {
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
-                <span className="text-[9px] font-extrabold opacity-60 tracking-widest uppercase">Sponsored</span>
                 <div className="flex-grow flex items-center justify-center overflow-hidden w-full">
                   <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
                 </div>
