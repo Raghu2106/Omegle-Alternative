@@ -399,6 +399,16 @@ export default function App() {
           urls: "turn:openrelay.metered.ca:443?transport=tcp",
           username: "openrelayproject",
           credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:3478",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:3478?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
         }
       ]
     });
@@ -418,11 +428,20 @@ export default function App() {
 
     // Attach local stream tracks to WebRTC pipe
     const currentLocalStream = localStreamRef.current;
-    if (currentLocalStream) {
+    if (currentLocalStream && currentLocalStream.getTracks().length > 0) {
       currentLocalStream.getTracks().forEach((track) => {
         pc.addTrack(track, currentLocalStream);
       });
     } else {
+      // If we don't have local tracks, explicitly declare direction to receive audio and video.
+      // This is necessary for Chrome and Safari to correctly negotiate receiving incoming streams 
+      // when the local user's camera / microphone access is disabled or not yet resolved.
+      try {
+        pc.addTransceiver("audio", { direction: "recvonly" });
+        pc.addTransceiver("video", { direction: "recvonly" });
+      } catch (err) {
+        console.warn("[WebRTC] Failed to add recvonly transceivers:", err);
+      }
       addSystemMessage("Joining without active camera feed.");
     }
 
@@ -430,13 +449,11 @@ export default function App() {
     pc.ontrack = (event) => {
       console.log("[WebRTC] Track detected:", event.track, event.streams);
       if (event.streams && event.streams[0]) {
-        // Use the event stream directly so that we maintain reference stability.
-        // This stops sub-tracks (like audio and then video) from resetting the DOM video element srcObject on every track receive.
+        // Reconstruct a new MediaStream instance with all available tracks.
+        // This guarantees that React receives a reference change when the second track (e.g., video following audio) 
+        // arrives asynchronously, forcing VideoPlayer to update its srcObject and invoke play() safely.
         const inboundStream = event.streams[0];
-        setRemoteStream((prev) => {
-          if (prev === inboundStream) return prev;
-          return inboundStream;
-        });
+        setRemoteStream(new MediaStream(inboundStream.getTracks()));
       } else {
         // Fallback: build a media stream on the fly from the individual track
         setRemoteStream((prev) => {
@@ -444,9 +461,8 @@ export default function App() {
             const tracks = prev.getTracks();
             if (!tracks.some((t) => t.id === event.track.id)) {
               prev.addTrack(event.track);
-              return new MediaStream(prev.getTracks()); // Create new stream instance only if new track is added
             }
-            return prev;
+            return new MediaStream(prev.getTracks());
           }
           return new MediaStream([event.track]);
         });
