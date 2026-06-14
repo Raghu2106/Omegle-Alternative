@@ -5,6 +5,7 @@ import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor,
 interface VideoPlayerProps {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  remoteStreamVersion?: number;
   isSearching: boolean;
   isPaired: boolean;
   cameraActive: boolean;
@@ -18,6 +19,7 @@ interface VideoPlayerProps {
 export default function VideoPlayer({
   localStream,
   remoteStream,
+  remoteStreamVersion = 0,
   isSearching,
   isPaired,
   cameraActive,
@@ -162,7 +164,7 @@ export default function VideoPlayer({
     } else {
       setAutoplayBlocked(false);
     }
-  }, [remoteStream, layoutMode, isPaired, userHasInteracted]);
+  }, [remoteStream, remoteStreamVersion, layoutMode, isPaired, userHasInteracted]);
 
   // Proactively listen for any document interaction to recover from autoplay blockages
   useEffect(() => {

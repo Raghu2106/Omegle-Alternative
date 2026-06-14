@@ -49,6 +49,7 @@ export default function App() {
   // WebRTC Stream configurations
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteStreamVersion, setRemoteStreamVersion] = useState<number>(0);
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
   const [isStreamLoading, setIsStreamLoading] = useState(false);
@@ -60,7 +61,8 @@ export default function App() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const modeRef = useRef<"text" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
-  const signalQueueRef = useRef<{ candidate?: any; offer?: any; answer?: any }[]>([]);
+  const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
+  const isProcessingQueueRef = useRef<boolean>(false);
 
   // Sync refs to avoid stale closures in socket events
   useEffect(() => {
@@ -101,51 +103,62 @@ export default function App() {
     }
   }, [appState, interests]);
 
-  // Process queued WebRTC signaling messages safely
-  const processSignalQueue = async () => {
-    const pc = pcRef.current;
-    if (!pc) return;
+  // Process queued WebRTC signaling messages safely and sequentially (FIFO) to prevent concurrent state collisions
+  const processSequentialQueue = async () => {
+    if (isProcessingQueueRef.current) return;
+    isProcessingQueueRef.current = true;
 
-    const queue = [...signalQueueRef.current];
-    signalQueueRef.current = [];
-
-    let descriptionSet = false;
-
-    for (const signal of queue) {
-      try {
-        if (signal.offer) {
-          console.log("[WebRTC] Processing queued offer");
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socketRef.current?.emit("webrtc-signal", {
-            to: partnerIdRef.current || "",
-            signal: { answer }
-          });
-          descriptionSet = true;
-        } else if (signal.answer) {
-          console.log("[WebRTC] Processing queued answer");
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
-          descriptionSet = true;
-        } else if (signal.candidate) {
-          if (pc.remoteDescription && pc.remoteDescription.type) {
-            console.log("[WebRTC] Processing queued candidate");
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-          } else {
-            // Re-queue candidate if remote desc is still not set
-            signalQueueRef.current.push(signal);
-          }
+    try {
+      while (signalProcessingQueueRef.current.length > 0) {
+        const pc = pcRef.current;
+        if (!pc) {
+          // Keep signals in the FIFO queue until RTCPeerConnection settles
+          break;
         }
-      } catch (err) {
-        console.error("Error processing queued signaling item: ", err);
-      }
-    }
 
-    // Recursively process remaining candidates if the remote description has just been established
-    if (descriptionSet && signalQueueRef.current.length > 0) {
-      console.log("[WebRTC] Remote description established; flushing remaining queued candidates.");
-      await processSignalQueue();
+        const item = signalProcessingQueueRef.current.shift();
+        if (!item) continue;
+
+        const { signal, from } = item;
+
+        try {
+          if (signal.offer) {
+            console.log("[WebRTC Queue] Processing offer from:", from);
+            await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socketRef.current?.emit("webrtc-signal", {
+              to: from,
+              signal: { answer }
+            });
+          } else if (signal.answer) {
+            console.log("[WebRTC Queue] Processing answer from:", from);
+            await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+          } else if (signal.candidate) {
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+              console.log("[WebRTC Queue] Adding ICE candidate from:", from);
+              await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            } else {
+              // Re-queue candidate back at the end of the queue if remote description isn't set yet
+              console.log("[WebRTC Queue] Re-queuing ICE candidate (remote description not set yet)");
+              signalProcessingQueueRef.current.push(item);
+              // Break briefly to avoid infinite loop checks in highly eager engines
+              break;
+            }
+          }
+        } catch (err) {
+          console.error("[WebRTC Queue] Error processing signaling item:", err, "Signal object:", signal);
+        }
+      }
+    } finally {
+      isProcessingQueueRef.current = false;
     }
+  };
+
+  const enqueueSignal = (signal: any, from: string) => {
+    console.log("[WebRTC Queue] Enqueuing signaling packet from:", from);
+    signalProcessingQueueRef.current.push({ signal, from });
+    processSequentialQueue();
   };
 
   // Lazy instantiate socket.io client
@@ -204,45 +217,10 @@ export default function App() {
     });
 
     // WebRTC signaling relay callback
-    socket.on("webrtc-signal", async ({ from, signal }) => {
+    socket.on("webrtc-signal", ({ from, signal }) => {
       const currentPartner = partnerIdRef.current;
-      if (from !== currentPartner) {
-        return;
-      }
-
-      const pc = pcRef.current;
-      if (!pc) {
-        // Queue the signal if peer connection is not yet initialized
-        signalQueueRef.current.push(signal);
-        return;
-      }
-
-      try {
-        if (signal.offer) {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socketRef.current?.emit("webrtc-signal", {
-            to: from,
-            signal: { answer }
-          });
-          // Process queued items (like candidates)
-          await processSignalQueue();
-        } else if (signal.answer) {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
-          // Process queued items (like candidates)
-          await processSignalQueue();
-        } else if (signal.candidate) {
-          if (pc.remoteDescription && pc.remoteDescription.type) {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-          } else {
-            // Queue candidate until remote description has been set
-            signalQueueRef.current.push(signal);
-          }
-        }
-      } catch (err) {
-        console.error("WebRTC Signaling Error: ", err);
-      }
+      if (from !== currentPartner) return;
+      enqueueSignal(signal, from);
     });
 
     // Handle sudden stranger disconnects or leaves
@@ -379,35 +357,28 @@ export default function App() {
     }
     setRemoteStream(null);
 
-    // Standard STUN & robust open TURN servers to handle symmetric NAT and cellular/firewall traversals
+    // Standard STUN & robust open TURN/TURNS servers to handle symmetric NAT and cellular/firewall traversals
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
         { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
         { urls: "stun:openrelay.metered.ca:80" },
         {
-          urls: "turn:openrelay.metered.ca:80",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:443",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:443?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:3478",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:3478?transport=tcp",
+          urls: [
+            "turn:openrelay.metered.ca:80",
+            "turn:openrelay.metered.ca:443",
+            "turn:openrelay.metered.ca:3478",
+            "turn:openrelay.metered.ca:443?transport=tcp",
+            "turn:openrelay.metered.ca:3478?transport=tcp",
+            "turns:openrelay.metered.ca:443",
+            "turns:openrelay.metered.ca:443?transport=tcp",
+            "turns:openrelay.metered.ca:80",
+            "turns:openrelay.metered.ca:3478",
+            "turns:openrelay.metered.ca:3478?transport=tcp"
+          ],
           username: "openrelayproject",
           credential: "openrelayproject"
         }
@@ -456,26 +427,34 @@ export default function App() {
     pc.ontrack = (event) => {
       console.log("[WebRTC] Track detected:", event.track, event.streams);
       
-      let inboundStream: MediaStream | null = null;
       if (event.streams && event.streams[0]) {
-        inboundStream = event.streams[0];
-      }
+        const inboundStream = event.streams[0];
+        setRemoteStream(inboundStream);
+        setRemoteStreamVersion((v) => v + 1);
 
-      setRemoteStream((prev) => {
-        const existingTracks = prev ? prev.getTracks() : [];
-        const inboundTracks = inboundStream ? inboundStream.getTracks() : [event.track];
-        
-        // Merge unique tracks by ID to avoid duplicates
-        const mergedTracks = [...existingTracks];
-        inboundTracks.forEach((track) => {
-          if (!mergedTracks.some((t) => t.id === track.id)) {
-            mergedTracks.push(track);
+        // Bind listeners to trigger updates if the browser adds another track (e.g. video following audio) dynamically
+        inboundStream.onaddtrack = (trackEvent) => {
+          console.log("[WebRTC] Dynamic track added to active stranger stream:", trackEvent.track.kind);
+          setRemoteStreamVersion((v) => v + 1);
+        };
+        inboundStream.onremovetrack = () => {
+          setRemoteStreamVersion((v) => v + 1);
+        };
+      } else {
+        // Fallback for custom clients that send raw tracks without stream containers
+        setRemoteStream((prev) => {
+          let updatedStream = prev;
+          if (!prev) {
+            updatedStream = new MediaStream([event.track]);
+          } else {
+            if (!prev.getTracks().some((t) => t.id === event.track.id)) {
+              prev.addTrack(event.track);
+            }
           }
+          setRemoteStreamVersion((v) => v + 1);
+          return updatedStream;
         });
-
-        console.log("[WebRTC] Internal stream track composition updated:", mergedTracks.map(t => t.kind));
-        return new MediaStream(mergedTracks);
-      });
+      }
     };
 
     // Forward gathered ICE candidates to paired stranger
@@ -489,7 +468,7 @@ export default function App() {
     };
 
     // Immediately process any queued signaling signals that arrived before PeerConnection was fully constructed
-    await processSignalQueue();
+    await processSequentialQueue();
 
     // Initiator peer drafts offer SDP
     if (isInitiator) {
@@ -541,7 +520,8 @@ export default function App() {
     setRemoteStream(null);
     partnerIdRef.current = null;
     setPartnerId(null);
-    signalQueueRef.current = []; // Reset queue
+    signalProcessingQueueRef.current = []; // Reset queue
+    isProcessingQueueRef.current = false;
     setWebrtcStatus("idle");
   };
 
@@ -1002,6 +982,7 @@ export default function App() {
                     <VideoPlayer
                       localStream={localStream}
                       remoteStream={remoteStream}
+                      remoteStreamVersion={remoteStreamVersion}
                       isSearching={appState === "searching"}
                       isPaired={appState === "paired"}
                       cameraActive={cameraActive}
