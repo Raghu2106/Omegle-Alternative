@@ -560,19 +560,52 @@ export default function App() {
 
     // Configure STUN/TURN servers. Support dynamic production TURN configuration via environment variables
     const customIceServers: RTCIceServer[] = [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-      { urls: "stun:stun3.l.google.com:19302" },
-      { urls: "stun:stun4.l.google.com:19302" },
-      { urls: "stun:openrelay.metered.ca:80" },
+      // 1. Prioritize Secure TLS (turns) on port 443 first (cellular network & enterprise firewall bypass)
       {
-        urls: "turn:openrelay.metered.ca:80",
+        urls: "turns:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turns:openrelay.metered.ca:443", // let browser auto-negotiate best transport
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      // 2. Secure TLS (turns) on port 3478
+      {
+        urls: "turns:openrelay.metered.ca:3478?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turns:openrelay.metered.ca:3478",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      // 3. Un-encrypted TURN on port 443 (effectively mimics HTTPS traffic)
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=udp",
         username: "openrelayproject",
         credential: "openrelayproject"
       },
       {
         urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      // 4. Un-encrypted TURN on standard ports / UDP fallbacks
+      {
+        urls: "turn:openrelay.metered.ca:3478?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+      {
+        urls: "turn:openrelay.metered.ca:3478?transport=udp",
         username: "openrelayproject",
         credential: "openrelayproject"
       },
@@ -582,20 +615,27 @@ export default function App() {
         credential: "openrelayproject"
       },
       {
-        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        urls: "turn:openrelay.metered.ca:80?transport=tcp",
         username: "openrelayproject",
         credential: "openrelayproject"
       },
       {
-        urls: "turn:openrelay.metered.ca:3478?transport=tcp",
+        urls: "turn:openrelay.metered.ca:80?transport=udp",
         username: "openrelayproject",
         credential: "openrelayproject"
       },
       {
-        urls: "turns:openrelay.metered.ca:443?transport=tcp",
+        urls: "turn:openrelay.metered.ca:80",
         username: "openrelayproject",
         credential: "openrelayproject"
-      }
+      },
+      // 5. Standard STUN Servers
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+      { urls: "stun:openrelay.metered.ca:80" }
     ];
 
     const envTurnUrl = (import.meta as any).env.VITE_TURN_URL;
@@ -617,7 +657,8 @@ export default function App() {
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: customIceServers
+      iceServers: customIceServers,
+      iceCandidatePoolSize: 10
     });
 
     pcRef.current = pc;
