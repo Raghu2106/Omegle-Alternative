@@ -1791,37 +1791,48 @@ export default function App() {
               <div className="hidden xl:flex fixed left-5 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-slate-200 rounded-2xl bg-white shadow-md text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
               </div>
-
               {/* Center Dashboard */}
-              <div className="flex-grow max-w-4xl grid md:grid-cols-5 gap-6">
-                
-                {/* Left Columns - Welcome and Preference config combined into a cohesive clean layout */}
-                <div className="md:col-span-3 space-y-6">
-                  {/* Hero section */}
-                  <div className="space-y-3">
-                    <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-xs text-indigo-700 font-semibold">
-                      <Sparkles className="w-3.5 h-3.5" /> True Anonymous Connections
+              <div className="flex-grow max-w-4xl w-full mx-auto">
+                <div className="grid lg:grid-cols-12 gap-5 lg:gap-8 items-center lg:items-stretch">
+                  
+                  {/* Left Column: Brand Intro & Info (Sits side-by-side with match configs on wide devices) */}
+                  <div className="lg:col-span-5 flex flex-col justify-between py-1 lg:py-4 space-y-4 lg:space-y-6">
+                    <div className="space-y-3 sm:space-y-4 text-center lg:text-left">
+                      <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-xs text-indigo-700 font-semibold">
+                        <Sparkles className="w-3.5 h-3.5" /> True Anonymous Connections
+                      </div>
+                      <h2 className="text-2xl sm:text-3xl lg:text-2xl xl:text-3xl font-extrabold tracking-tight text-slate-900 leading-[1.12]">
+                        Talk to strangers, <span className="text-linear bg-linear-to-r from-indigo-600 to-sky-500 bg-clip-text text-transparent">completely free.</span>
+                      </h2>
+                      <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-xl mx-auto lg:mx-0">
+                        Umegle pairs you instantly with peer companions worldwide. Filter matches by adding custom keywords to search for shared interests.
+                      </p>
                     </div>
-                    <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 leading-[1.12]">
-                      Talk to strangers, <span className="text-linear bg-linear-to-r from-indigo-600 to-sky-500 bg-clip-text text-transparent">completely free.</span>
-                    </h2>
-                    <p className="text-sm text-slate-500 leading-relaxed max-w-lg">
-                      Umegle pairs you instantly with peer companions worldwide. Filter matches by adding custom tag keywords to search for shared interests.
-                    </p>
+
+                    {/* Integrated P2P Safety & Encryption block (Visible on wide screens) */}
+                    <div className="hidden lg:flex border border-slate-100 bg-white/70 backdrop-blur-xs p-4 rounded-xl gap-3 shadow-3xs">
+                      <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <h5 className="text-xs font-bold text-slate-800 tracking-wide">P2P Encrypted Streams</h5>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Merged Input & Mode Selector Box */}
-                  <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-6">
+                  {/* Right Column: Interaction Parameter Box */}
+                  <div className="lg:col-span-7 bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-sm space-y-4 sm:space-y-5">
                     {/* Part 1: Shared Interests (Optional) */}
-                    <div className="space-y-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Shared Interests (Optional)</label>
-                        <p className="text-[11px] text-slate-450 leading-relaxed">Type interest categories and press <kbd className="font-semibold bg-slate-50 px-1 py-0.5 rounded border border-slate-200">Enter</kbd> or use comma separators.</p>
+                    <div className="space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+                        <label className="text-xs font-bold text-slate-700 uppercase tracking-widest block header-align">Shared Interests</label>
+                        <p className="text-[10px] text-slate-400">Press <kbd className="font-semibold bg-slate-50 px-1 py-0.5 rounded border border-slate-200">Enter</kbd> or use comma separators</p>
                       </div>
 
-                      <div className="flex flex-wrap gap-1.5 min-h-[44px] p-2 bg-slate-50 rounded-xl border border-slate-200/60 focus-within:ring-2 focus-within:ring-indigo-600/20 focus-within:border-indigo-600 transition-all">
+                      <div className="flex flex-wrap gap-1.5 min-h-[40px] p-2 bg-slate-50 rounded-xl border border-slate-200/60 focus-within:ring-2 focus-within:ring-indigo-600/20 focus-within:border-indigo-600 transition-all">
                         {interests.map((tag) => (
-                          <span key={tag} className="inline-flex items-center gap-1 bg-indigo-600 text-white pl-2.5 pr-1.5 py-1 rounded-lg text-xs font-semibold shadow-2xs">
+                          <span key={tag} className="inline-flex items-center gap-1 bg-indigo-600 text-white pl-2 pr-1 py-0.5 rounded-lg text-xs font-semibold shadow-2xs">
                             {tag}
                             <button onClick={() => removeInterest(tag)} className="p-0.5 text-indigo-300 hover:text-white hover:bg-indigo-500 rounded-md transition-colors">
                               <X className="w-3 h-3" />
@@ -1839,29 +1850,31 @@ export default function App() {
                         />
                       </div>
                     </div>
-                    <div className="border-t border-slate-100 pt-5 space-y-4">
-                      <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Choose Matching Mode</span>
-                                            <div className="grid sm:grid-cols-3 gap-3">
+
+                    {/* Part 2: Choose Matching Mode */}
+                    <div className="border-t border-slate-100 pt-4 space-y-3">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block text-center sm:text-left">Choose Matching Mode</span>
+                      <div className="grid grid-cols-3 gap-2 sm:gap-3">
                         {/* Option 1: Text */}
                         <div 
                           id="mode-option-text"
                           onClick={() => setMode("text")}
-                          className={`group p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
+                          className={`group p-2.5 sm:p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
                             mode === "text" 
                               ? "border-indigo-600 bg-indigo-50/20 shadow-xs shadow-indigo-600/5" 
                               : "border-slate-100 hover:border-indigo-600/30 hover:shadow-xs hover:-translate-y-0.5 bg-white"
                           }`}
                         >
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
                             mode === "text" 
                               ? "bg-indigo-600 text-white shadow-xs shadow-indigo-500/20" 
                               : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
                           }`}>
-                            <MessageSquare className="w-4 h-4" />
+                            <MessageSquare className="w-3.5 h-3.5" />
                           </div>
-                          <div className="space-y-1">
-                            <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Text Chat Only</h4>
-                            <p className="text-[10px] text-slate-500 leading-relaxed">Fast, anonymous texting matches. Optimized for speed.</p>
+                          <div className="space-y-0.5">
+                            <h4 className="text-[9px] sm:text-[10px] font-bold text-slate-800 uppercase tracking-wider">Text Only</h4>
+                            <p className="hidden sm:block text-[9px] text-slate-500 leading-normal">Fast, anonymous chat.</p>
                           </div>
                         </div>
 
@@ -1869,22 +1882,22 @@ export default function App() {
                         <div 
                           id="mode-option-voice"
                           onClick={() => setMode("voice")}
-                          className={`group p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
+                          className={`group p-2.5 sm:p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
                             mode === "voice" 
                               ? "border-indigo-600 bg-indigo-50/20 shadow-xs shadow-indigo-600/5" 
                               : "border-slate-100 hover:border-indigo-600/30 hover:shadow-xs hover:-translate-y-0.5 bg-white"
                           }`}
                         >
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
                             mode === "voice" 
                               ? "bg-indigo-600 text-white shadow-xs shadow-indigo-500/20" 
                               : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
                           }`}>
-                            <Volume2 className="w-4 h-4" />
+                            <Volume2 className="w-3.5 h-3.5" />
                           </div>
-                          <div className="space-y-1">
-                            <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Voice & Text</h4>
-                            <p className="text-[10px] text-slate-500 leading-relaxed">Voice audio stream along with standard text chat.</p>
+                          <div className="space-y-0.5">
+                            <h4 className="text-[9px] sm:text-[10px] font-bold text-slate-800 uppercase tracking-wider">Voice & Text</h4>
+                            <p className="hidden sm:block text-[9px] text-slate-500 leading-normal">Voice audio streams.</p>
                           </div>
                         </div>
 
@@ -1892,29 +1905,29 @@ export default function App() {
                         <div 
                           id="mode-option-video"
                           onClick={() => setMode("video")}
-                          className={`group p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
+                          className={`group p-2.5 sm:p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
                             mode === "video" 
                               ? "border-indigo-600 bg-indigo-50/20 shadow-xs shadow-indigo-600/5" 
                               : "border-slate-100 hover:border-indigo-600/30 hover:shadow-xs hover:-translate-y-0.5 bg-white"
                           }`}
                         >
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
                             mode === "video" 
                               ? "bg-indigo-600 text-white shadow-xs shadow-indigo-500/20" 
                               : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
                           }`}>
-                            <Video className="w-4 h-4" />
+                            <Video className="w-3.5 h-3.5" />
                           </div>
-                          <div className="space-y-1">
-                            <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Webcam & Voice</h4>
-                            <p className="text-[10px] text-slate-500 leading-relaxed">Dynamic audio & video feeds alongside standard chat.</p>
+                          <div className="space-y-0.5">
+                            <h4 className="text-[9px] sm:text-[10px] font-bold text-slate-800 uppercase tracking-wider">Webcam</h4>
+                            <p className="hidden sm:block text-[9px] text-slate-500 leading-normal">Dynamic video feeds.</p>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     {/* Terms & Privacy Agreement checkbox required for onboarding */}
-                    <div id="terms-agreement-row" className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3 shadow-3xs select-none text-left">
+                    <div id="terms-agreement-row" className="p-3 rounded-xl bg-slate-50 border border-slate-200/60 space-y-2.5 shadow-3xs select-none text-left">
                       <div className="flex items-start gap-2.5">
                         <input
                           id="checkbox-terms"
@@ -1931,7 +1944,7 @@ export default function App() {
                               setShowTermsDetail(!showTermsDetail);
                               setShowPrivacyDetail(false);
                             }}
-                            className="text-indigo-605 text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
+                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
                           >
                             Terms of Use
                           </button>
@@ -1942,7 +1955,7 @@ export default function App() {
                               setShowPrivacyDetail(!showPrivacyDetail);
                               setShowTermsDetail(false);
                             }}
-                            className="text-indigo-605 text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
+                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
                           >
                             Privacy Policy
                           </button>
@@ -1960,11 +1973,11 @@ export default function App() {
                             exit={{ opacity: 0, height: 0 }}
                             className="text-[11px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 shadow-2xs overflow-hidden"
                           >
-                            <div className="font-bold text-slate-850 text-slate-800">Terms of Use Highlights:</div>
+                            <div className="font-bold text-slate-800">Terms of Use Highlights:</div>
                             <ul className="list-disc list-inside space-y-1 pl-1">
                               <li>You must be at least 18 years old to join or use this chat applet.</li>
-                              <li>No sexually explicit content, racial slurs, harassment, or offensive behaviors.</li>
-                              <li>Protect your own identity; avoid sharing sensitive credentials or contact details.</li>
+                              <li>No sexually explicit content, harassment, or offensive behaviors.</li>
+                              <li>Protect your identity; avoid sharing contact details.</li>
                             </ul>
                           </motion.div>
                         )}
@@ -1977,34 +1990,23 @@ export default function App() {
                             exit={{ opacity: 0, height: 0 }}
                             className="text-[11px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 shadow-2xs overflow-hidden"
                           >
-                            <div className="font-bold text-slate-850 text-slate-800">Privacy Policy Highlights:</div>
+                            <div className="font-bold text-slate-800">Privacy Policy Highlights:</div>
                             <ul className="list-disc list-inside space-y-1 pl-1">
                               <li>Connections utilize highly secure peer-to-peer (P2P) signaling pathways.</li>
-                              <li>Text messages are entirely volatile and immediately deleted upon lobby exit.</li>
+                              <li>Text messages are volatilized and immediately deleted upon lobby exit.</li>
                               <li>We do not record, document, log, store, or sell any content streams.</li>
                             </ul>
                           </motion.div>
                         )}
                       </AnimatePresence>
-
-                      {/* Integrated P2P Safety & Encryption block */}
-                      <div className="border-t border-slate-200/80 pt-2.5 mt-1.5 flex gap-2.5">
-                        <ShieldCheck className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                        <div className="space-y-0.5">
-                          <h5 className="text-[11px] font-bold text-sky-900 tracking-wide">P2P Encrypted Streams</h5>
-                          <p className="text-[10px] text-slate-500 leading-relaxed">
-                            Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
-                          </p>
-                        </div>
-                      </div>
                     </div>
 
-                    {/* Massive matching start trigger button */}
+                    {/* Matching start trigger button */}
                     <button
                       id="btn-start-matching"
                       onClick={handleStartMatching}
                       disabled={!agreedToTerms}
-                      className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                      className={`w-full h-12 sm:h-13 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
                         agreedToTerms
                           ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-805 hover:shadow-lg"
                           : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200"
@@ -2013,19 +2015,9 @@ export default function App() {
                       <span>Start Chatting</span>
                       <Sparkles className="w-4 h-4 text-sky-300" />
                     </button>
-
-
                   </div>
-                </div>
 
-                {/* Right Columns - Ads */}
-                <div className="md:col-span-2 flex flex-col justify-start">
-                  {/* Dynamic Adsterra Right Column Rectangular Ad Banner */}
-                  <div className="flex flex-col items-center gap-1.5 py-1 text-center select-none shadow-3xs rounded-xl bg-white border border-slate-100 p-2">
-                    <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-xl border border-slate-100 bg-white shadow-2xs" />
-                  </div>
                 </div>
-
               </div>
 
               {/* Right Skyscraper banner */}
