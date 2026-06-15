@@ -793,9 +793,9 @@ export default function App() {
           facingMode: "user"
         },
         audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true }
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
         }
       });
       localStreamRef.current = stream;
@@ -814,9 +814,9 @@ export default function App() {
             frameRate: { ideal: 30 }
           },
           audio: {
-            echoCancellation: { ideal: true },
-            noiseSuppression: { ideal: true },
-            autoGainControl: { ideal: true }
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
           }
         });
         localStreamRef.current = stream;
@@ -849,9 +849,9 @@ export default function App() {
             const stream = await navigator.mediaDevices.getUserMedia({
               video: false,
               audio: {
-                echoCancellation: { ideal: true },
-                noiseSuppression: { ideal: true },
-                autoGainControl: { ideal: true }
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
               }
             });
             localStreamRef.current = stream;
