@@ -2056,11 +2056,15 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-full w-full relative flex flex-col lg:grid lg:grid-cols-2 outline-hidden bg-slate-900 min-h-0 overflow-hidden"}
+                className={mode === "text" || mode === "voice" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-full w-full relative flex flex-col lg:grid lg:grid-cols-2 outline-hidden bg-slate-900 min-h-0 overflow-hidden"}
               >
-                {/* Media pane (left column: custom video feed / voice visualizer) */}
+                {/* Media pane (left column: custom video feed / compact top voice bar) */}
                 {mode !== "text" && (
-                  <div className="h-[200px] xs:h-[240px] sm:h-[280px] md:h-[320px] lg:h-full w-full relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none border-b border-slate-800/80 flex flex-col shrink-0 min-h-0">
+                  <div className={
+                    mode === "voice"
+                      ? "h-[60px] sm:h-[72px] w-full relative flex flex-col shrink-0 min-h-0 z-20 border-b border-violet-900/60 bg-violet-950 shadow-sm"
+                      : "h-[200px] xs:h-[240px] sm:h-[280px] md:h-[320px] lg:h-full w-full relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none border-b border-slate-800/80 flex flex-col shrink-0 min-h-0"
+                  }>
                     <VideoPlayer
                       localStream={localStream}
                       remoteStream={remoteStream}
@@ -2080,7 +2084,7 @@ export default function App() {
                 )}
 
                 {/* Chat pane (right column or full width depending on mode) */}
-                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-auto lg:h-full w-full flex flex-col min-h-0 overflow-hidden"}>
+                <div className={mode === "text" || mode === "voice" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-auto lg:h-full w-full flex flex-col min-h-0 overflow-hidden"}>
                   <ChatPanel
                     messages={messages}
                     isSearching={appState === "searching"}
