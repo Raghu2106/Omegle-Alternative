@@ -83,6 +83,7 @@ export default function App() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
+  const lastPlayedAudioTrackIdsRef = useRef<string[]>([]);
   const modeRef = useRef<"text" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
@@ -515,13 +516,22 @@ export default function App() {
                   const offer = await activePc.createOffer();
                   console.log("[SIGNALING] createOffer succeeded:", offer);
                   
-                  console.log("[SIGNALING] Calling setLocalDescription with generated offer");
-                  await activePc.setLocalDescription(offer);
+                  console.log("[SIGNALING] Calling setLocalDescription with optimized SDP bitrates");
+                  const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
+                  const localOfferSpec = new RTCSessionDescription({
+                    type: "offer",
+                    sdp: optimizedSdp
+                  });
+                  await activePc.setLocalDescription(localOfferSpec);
                   console.log("[SIGNALING] setLocalDescription (offer) succeeded");
 
+                  const finalOfferToSend = {
+                    type: "offer",
+                    sdp: optimizedSdp
+                  };
                   socketRef.current?.emit("webrtc-signal", {
                     to: from,
-                    signal: { offer }
+                    signal: { offer: finalOfferToSend }
                   });
                 } catch (err) {
                   console.error("[SIGNALING] Failed to generate/negotiate offer during requestOffer process:", err);
@@ -911,14 +921,39 @@ export default function App() {
     const senders = pc.getSenders();
 
     for (const track of stream.getTracks()) {
-      const alreadyAdded = senders.some((s) => s.track === track);
-      if (!alreadyAdded) {
-        console.log(`[WebRTC] Attaching track ${track.kind} of local stream to existing PeerConnection.`);
-        try {
-          pc.addTrack(track, stream);
+      // Find matching transceiver by kind
+      const transceivers = pc.getTransceivers();
+      const matchingTransceiver = transceivers.find(
+        (t) => (t.sender && t.sender.track === track) ||
+               (t.receiver && t.receiver.track && t.receiver.track.kind === track.kind) ||
+               (t.sender && !t.sender.track && t.receiver && t.receiver.track && t.receiver.track.kind === track.kind) ||
+               (t.mid === null && t.direction === "recvonly")
+      );
+
+      if (matchingTransceiver && matchingTransceiver.sender) {
+        if (matchingTransceiver.sender.track !== track) {
+          console.log(`[WebRTC] Reusing existing transceiver to attach local track of kind "${track.kind}".`);
+          try {
+            await matchingTransceiver.sender.replaceTrack(track);
+            matchingTransceiver.direction = "sendrecv";
+            changed = true;
+          } catch (replaceErr) {
+            console.warn(`[WebRTC] Error calling replaceTrack for kind "${track.kind}":`, replaceErr);
+          }
+        } else if (matchingTransceiver.direction !== "sendrecv") {
+          matchingTransceiver.direction = "sendrecv";
           changed = true;
-        } catch (addError) {
-          console.warn("[WebRTC] Error adding track dynamically:", addError);
+        }
+      } else {
+        const alreadyAdded = senders.some((s) => s.track === track || (s.track && s.track.id === track.id));
+        if (!alreadyAdded) {
+          console.log(`[WebRTC] Attaching track ${track.kind} of local stream to existing PeerConnection via addTrack.`);
+          try {
+            pc.addTrack(track, stream);
+            changed = true;
+          } catch (addError) {
+            console.warn("[WebRTC] Error adding track dynamically:", addError);
+          }
         }
       }
     }
@@ -936,10 +971,16 @@ export default function App() {
       try {
         console.log("[WebRTC] Creating renegotiation SDP offer...");
         const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
+        const localOfferSpec = new RTCSessionDescription({
+          type: "offer",
+          sdp: optimizedSdp
+        });
+        await pc.setLocalDescription(localOfferSpec);
+        
         socketRef.current?.emit("webrtc-signal", {
           to: partnerIdRef.current,
-          signal: { offer }
+          signal: { offer: { type: "offer", sdp: optimizedSdp } }
         });
       } catch (err) {
         console.error("[WebRTC] Failed to create renegotiation offer:", err);
@@ -1013,8 +1054,19 @@ export default function App() {
       // Overwrite Opus media format parameters for seamless, lowest-latency mono voice and standard echo cancellation
       if (isAudioSection && opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) {
         // Set stereo=0 and sprop-stereo=0. This lets browser echo-cancellation (AEC) map nicely to the microphone
-        // Inject ptime=20 and minptime=10 for fast 10-20ms packetization frames (reduces codec latency from the default 40-60ms)
-        line = `a=fmtp:${opusPayloadType} useinbandfec=1;stereo=0;sprop-stereo=0;usedtx=1;maxaveragebitrate=${audioBitrateKbps * 1000};ptime=20;minptime=10`;
+        // Safely parse and append values without destroying any other browser parameters
+        let originalParams = line.substring(`a=fmtp:${opusPayloadType} `.length).trim();
+        const paramsToClean = ["stereo", "sprop-stereo", "maxaveragebitrate", "useinbandfec", "usedtx"];
+        let parts = originalParams ? originalParams.split(";").map(p => p.trim()).filter(p => {
+          const key = p.split("=")[0].trim().toLowerCase();
+          return !paramsToClean.includes(key);
+        }) : [];
+        parts.push("stereo=0");
+        parts.push("sprop-stereo=0");
+        parts.push("useinbandfec=1");
+        parts.push("usedtx=1");
+        parts.push(`maxaveragebitrate=${audioBitrateKbps * 1000}`);
+        line = `a=fmtp:${opusPayloadType} ${parts.join("; ")}`;
       }
 
       modifiedLines.push(line);
@@ -1377,15 +1429,29 @@ export default function App() {
   };
 
   const playRemoteAudioStream = (stream: MediaStream) => {
-    // Destroy any existing remote audio element first to ensure exactly single-play execution
-    destroyRemoteAudioElement();
-
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length === 0) {
       console.log("[Audio] No remote audio tracks detected.");
+      destroyRemoteAudioElement();
+      lastPlayedAudioTrackIdsRef.current = [];
       return;
     }
 
+    const currentTrackIds = audioTracks.map((t) => t.id).sort();
+    const lastTrackIds = lastPlayedAudioTrackIdsRef.current;
+    
+    const isSameAudio = currentTrackIds.length === lastTrackIds.length &&
+                        currentTrackIds.every((id, idx) => id === lastTrackIds[idx]);
+
+    if (isSameAudio && remoteAudioElementRef.current) {
+      console.log("[Audio] Same audio tracks already playing. Skipping duplication/re-creation.");
+      return;
+    }
+
+    // Destroy any existing remote audio element first to ensure exactly single-play execution
+    destroyRemoteAudioElement();
+
+    lastPlayedAudioTrackIdsRef.current = currentTrackIds;
     console.log(`[Audio] Playing remote voice stream: containing ${audioTracks.length} audio tracks.`);
     const audioOnlyStream = new MediaStream(audioTracks);
 
@@ -1426,20 +1492,7 @@ export default function App() {
 
   const safeSetRemoteStream = (newStream: MediaStream | null) => {
     remoteStreamRef.current = newStream;
-    setRemoteStream((prevStream) => {
-      if (prevStream && prevStream !== newStream) {
-        console.log("[Media] Releasing previous remoteStream tracks to completely prevent leaking audio/video echoes");
-        try {
-          prevStream.getTracks().forEach((track) => {
-            track.onended = null;
-            track.stop();
-          });
-        } catch (err) {
-          console.warn("[Media] Error cleaning previous tracks:", err);
-        }
-      }
-      return newStream;
-    });
+    setRemoteStream(newStream);
   };
 
   const cleanPeerConnection = () => {
