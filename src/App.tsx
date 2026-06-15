@@ -150,14 +150,14 @@ export default function App() {
       return;
     }
 
-    // Allow a 1.5-second grace period for WebRTC peers to establish a P2P connection,
+    // Allow a 4.5-second grace period for WebRTC peers to establish a P2P connection,
     // otherwise activate WebSocket media fallback instantly so the user never sees a black list/freeze!
     const timer = setTimeout(() => {
       if (webrtcStatus !== "connected" && webrtcStatus !== "completed") {
-        console.log("[MediaRelay] WebRTC connection did not establish within 1.5 seconds. Activating seamless WebSocket media fallback.");
+        console.log("[MediaRelay] WebRTC connection did not establish within 4.5 seconds. Activating seamless WebSocket media fallback.");
         setShowSocketFallback(true);
       }
-    }, 1500);
+    }, 4500);
 
     return () => clearTimeout(timer);
   }, [appState, mode, webrtcStatus]);
