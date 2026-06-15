@@ -81,6 +81,8 @@ export default function App() {
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const modeRef = useRef<"text" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
@@ -1044,7 +1046,8 @@ export default function App() {
       }
       pcRef.current = null;
     }
-    setRemoteStream(null);
+    safeSetRemoteStream(null);
+    destroyRemoteAudioElement();
     signalProcessingQueueRef.current = [];
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
@@ -1162,11 +1165,15 @@ export default function App() {
       );
     };
 
-    // Attach local stream tracks to WebRTC pipe
+    // Attach local stream tracks to WebRTC pipe safely
     const currentLocalStream = localStreamRef.current;
     if (currentLocalStream && currentLocalStream.getTracks().length > 0) {
+      const senders = pc.getSenders();
       currentLocalStream.getTracks().forEach((track) => {
-        pc.addTrack(track, currentLocalStream);
+        const alreadyAdded = senders.some((s) => s.track === track || (s.track && s.track.id === track.id) || (s.track && s.track.kind === track.kind));
+        if (!alreadyAdded) {
+          pc.addTrack(track, currentLocalStream);
+        }
       });
     } else {
       // If we don't have local tracks, explicitly declare direction to receive audio and video.
@@ -1187,38 +1194,75 @@ export default function App() {
       
       if (event.streams && event.streams[0]) {
         const inboundStream = event.streams[0];
-        // Create a new MediaStream wrapper to force reference change in React state.
-        // This guarantees that when a second track (e.g., video track after audio track) is added,
-        // React immediately updates component bindings instead of short-circuiting on equal object referential checks.
-        setRemoteStream(new MediaStream(inboundStream.getTracks()));
-        setRemoteStreamVersion((v) => v + 1);
+        
+        // Wrap tracks from inboundStream cleanly
+        const inboundTracks = inboundStream.getTracks();
+        const hasAudio = inboundTracks.some((t) => t.kind === "audio");
+        const freshStream = new MediaStream(inboundTracks);
 
-        // Bind listeners to trigger updates if the browser adds another track (e.g. video following audio) dynamically
+        // Ensure we prevent re-assigning the same stream repeatedly if it matches existing remoteStream's tracks exactly
+        const prev = remoteStreamRef.current;
+        let sameTracks = false;
+        if (prev) {
+          const prevTracks = prev.getTracks();
+          sameTracks = prevTracks.length === inboundTracks.length && 
+                       prevTracks.every((pt) => inboundTracks.some((it) => it.id === pt.id));
+        }
+
+        if (!sameTracks) {
+          console.log("[WEBRTC] Attaching clean remote stream to state.");
+          safeSetRemoteStream(freshStream);
+          setRemoteStreamVersion((v) => v + 1);
+          if (hasAudio) {
+            playRemoteAudioStream(freshStream);
+          }
+        } else {
+          console.log("[WEBRTC] remoteStream tracks already match exactly. Skipping duplicate remote stream attachment.");
+        }
+
+        // Prevent duplicate event listeners
+        inboundStream.onaddtrack = null;
+        inboundStream.onremovetrack = null;
+
         inboundStream.onaddtrack = (trackEvent) => {
           console.log(`[WEBRTC] Dynamic track added to active stranger stream: kind="${trackEvent.track.kind}"`);
-          setRemoteStream(new MediaStream(inboundStream.getTracks()));
+          const updatedTracks = inboundStream.getTracks();
+          const updatedStream = new MediaStream(updatedTracks);
+          safeSetRemoteStream(updatedStream);
           setRemoteStreamVersion((v) => v + 1);
+          if (trackEvent.track.kind === "audio") {
+            playRemoteAudioStream(updatedStream);
+          }
         };
         inboundStream.onremovetrack = () => {
-          setRemoteStream(new MediaStream(inboundStream.getTracks()));
+          console.log("[WEBRTC] Dynamic track removed from active stranger stream.");
+          const updatedTracks = inboundStream.getTracks();
+          const updatedStream = new MediaStream(updatedTracks);
+          safeSetRemoteStream(updatedStream);
           setRemoteStreamVersion((v) => v + 1);
         };
       } else {
         // Fallback for custom clients that send raw tracks without stream containers
-        setRemoteStream((prev) => {
-          if (!prev) {
-            const nextStream = new MediaStream([event.track]);
-            setRemoteStreamVersion((v) => v + 1);
-            return nextStream;
-          } else {
-            if (!prev.getTracks().some((t) => t.id === event.track.id)) {
-              prev.addTrack(event.track);
-            }
-            const nextStream = new MediaStream(prev.getTracks());
-            setRemoteStreamVersion((v) => v + 1);
-            return nextStream;
+        const prev = remoteStreamRef.current;
+        if (!prev) {
+          const nextStream = new MediaStream([event.track]);
+          safeSetRemoteStream(nextStream);
+          setRemoteStreamVersion((v) => v + 1);
+          if (event.track.kind === "audio") {
+            playRemoteAudioStream(nextStream);
           }
-        });
+        } else {
+          const alreadyHasTrack = prev.getTracks().some((t) => t.id === event.track.id);
+          if (!alreadyHasTrack) {
+            prev.addTrack(event.track);
+            const nextStream = new MediaStream(prev.getTracks());
+            safeSetRemoteStream(nextStream);
+            setRemoteStreamVersion((v) => v + 1);
+            if (event.track.kind === "audio") {
+              playRemoteAudioStream(nextStream);
+            }
+          }
+        }
       }
     };
 
@@ -1318,6 +1362,86 @@ export default function App() {
     }
   };
 
+  const destroyRemoteAudioElement = () => {
+    if (remoteAudioElementRef.current) {
+      console.log("[Audio] Destroying previous remote audio element to prevent double-playback echo and delay leakage.");
+      try {
+        remoteAudioElementRef.current.pause();
+        remoteAudioElementRef.current.srcObject = null;
+        remoteAudioElementRef.current.remove();
+      } catch (e) {
+        console.warn("[Audio] Error destroying remote audio element:", e);
+      }
+      remoteAudioElementRef.current = null;
+    }
+  };
+
+  const playRemoteAudioStream = (stream: MediaStream) => {
+    // Destroy any existing remote audio element first to ensure exactly single-play execution
+    destroyRemoteAudioElement();
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      console.log("[Audio] No remote audio tracks detected.");
+      return;
+    }
+
+    console.log(`[Audio] Playing remote voice stream: containing ${audioTracks.length} audio tracks.`);
+    const audioOnlyStream = new MediaStream(audioTracks);
+
+    const audioEl = document.createElement("audio");
+    audioEl.id = "webrtc-remote-audio";
+    audioEl.autoplay = true;
+    (audioEl as any).playsInline = true;
+    audioEl.muted = false;
+    audioEl.srcObject = audioOnlyStream;
+    remoteAudioElementRef.current = audioEl;
+    document.body.appendChild(audioEl);
+
+    audioEl.play()
+      .then(() => {
+        console.log("[Audio] WebRTC remote stream audio initiated success.");
+      })
+      .catch((err) => {
+        console.warn("[Audio] Audio playback gesture-blocked. Registering automatic unmute triggers...", err);
+        const resumeAudio = () => {
+          if (remoteAudioElementRef.current === audioEl) {
+            audioEl.play()
+              .then(() => {
+                console.log("[Audio] Unblocked audio stream successfully of stranger via click handshake.");
+                cleanup();
+              })
+              .catch((e) => console.warn("[Audio] Secondary playback activation failed:", e));
+          } else {
+            cleanup();
+          }
+        };
+        const events = ["click", "keydown", "mousedown", "touchstart"];
+        const cleanup = () => {
+          events.forEach((ev) => document.removeEventListener(ev, resumeAudio));
+        };
+        events.forEach((ev) => document.addEventListener(ev, resumeAudio, { passive: true }));
+      });
+  };
+
+  const safeSetRemoteStream = (newStream: MediaStream | null) => {
+    remoteStreamRef.current = newStream;
+    setRemoteStream((prevStream) => {
+      if (prevStream && prevStream !== newStream) {
+        console.log("[Media] Releasing previous remoteStream tracks to completely prevent leaking audio/video echoes");
+        try {
+          prevStream.getTracks().forEach((track) => {
+            track.onended = null;
+            track.stop();
+          });
+        } catch (err) {
+          console.warn("[Media] Error cleaning previous tracks:", err);
+        }
+      }
+      return newStream;
+    });
+  };
+
   const cleanPeerConnection = () => {
     if (pcRef.current) {
       try {
@@ -1327,7 +1451,8 @@ export default function App() {
       }
       pcRef.current = null;
     }
-    setRemoteStream(null);
+    safeSetRemoteStream(null);
+    destroyRemoteAudioElement();
     setRemoteVideoFrame(null);
     partnerIdRef.current = null;
     setPartnerId(null);
@@ -1368,7 +1493,8 @@ export default function App() {
     setMessages([]);
     setStrangerIsTyping(false);
     setCommonInterests([]);
-    setRemoteStream(null);
+    safeSetRemoteStream(null);
+    destroyRemoteAudioElement();
     setAppState("searching");
 
     trackEvent("join_search", { mode, interests_count: interests.length, interests });

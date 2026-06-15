@@ -98,8 +98,9 @@ export default function VideoPlayer({
   const remoteVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoRef.current = el;
     if (el && remoteStream) {
+      el.muted = true; // FORCE MUTED TO ELIMINATE DUPLICATE AUDIO PLAYBACK PATHS
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref");
+        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref (Muted)");
         el.srcObject = remoteStream;
       }
       el.play()
@@ -107,17 +108,7 @@ export default function VideoPlayer({
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Play call failed inside callback ref:, trying muted play fallback", err);
-          if (!el.muted) {
-            el.muted = true;
-            el.play()
-              .then(() => {
-                setAutoplayBlocked(false);
-              })
-              .catch((muteErr) => {
-                console.error("[VideoPlayer] Muted playback fallback failed in callback ref:", muteErr);
-              });
-          }
+          console.warn("[VideoPlayer] Local muted video play failed inside callback ref: ", err);
         });
     }
   }, [remoteStream]);
@@ -228,8 +219,9 @@ export default function VideoPlayer({
   useEffect(() => {
     const el = remoteVideoRef.current;
     if (el && remoteStream) {
+      el.muted = true; // FORCE MUTED TO ELIMINATE DUPLICATE AUDIO PLAYBACK PATHS
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect");
+        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect (Muted)");
         el.srcObject = remoteStream;
       }
       el.play()
@@ -237,50 +229,12 @@ export default function VideoPlayer({
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Autoplay was blocked/halted in useEffect:", err);
-          if (!el.muted) {
-            el.muted = true;
-            el.play()
-              .then(() => {
-                setAutoplayBlocked(false);
-              })
-              .catch((muteErr) => {
-                console.error("[VideoPlayer] Muted playback fallback failed in useEffect:", muteErr);
-              });
-          }
+          console.warn("[VideoPlayer] Local muted video play failed inside useEffect: ", err);
         });
     } else {
       setAutoplayBlocked(false);
     }
   }, [remoteStream, remoteStreamVersion, layoutMode, isPaired]);
-
-  // Proactively listen for any document interaction to fully unmute & play back the stranger's voice seamlessly
-  useEffect(() => {
-    const tryUnmuteAndPlay = () => {
-      const el = remoteVideoRef.current;
-      if (el && remoteStream) {
-        if (el.muted) {
-          console.log("[VideoPlayer] Dynamic user interaction detected: Unmuting stranger stream audio feed...");
-          el.muted = false;
-        }
-        el.play()
-          .then(() => {
-            setAutoplayBlocked(false);
-            setUserHasInteracted(true);
-          })
-          .catch((err) => {
-            console.log("[VideoPlayer] Gesture audio resume deferred:", err);
-          });
-      }
-    };
-
-    const events = ["click", "keydown", "mousedown", "touchstart"];
-    events.forEach((event) => document.addEventListener(event, tryUnmuteAndPlay, { passive: true }));
-
-    return () => {
-      events.forEach((event) => document.removeEventListener(event, tryUnmuteAndPlay));
-    };
-  }, [remoteStream]);
 
   const getWebrtcStatusLabel = () => {
     if (!webrtcStatus || webrtcStatus === "idle") return "";
@@ -435,7 +389,7 @@ export default function VideoPlayer({
             ref={remoteVideoCallback}
             autoPlay
             playsInline
-            muted={false}
+            muted={true}
             className="w-full h-full object-cover bg-slate-950"
           />
         ) : isPaired && remoteVideoFrame ? (
