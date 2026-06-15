@@ -15,5 +15,5 @@ export interface PairingInfo {
 
 export interface UserPreferences {
   interests: string[];
-  mode: "text" | "video";
+  mode: "text" | "voice" | "video";
 }

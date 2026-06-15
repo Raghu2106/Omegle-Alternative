@@ -19,7 +19,8 @@ import {
   Share2, 
   Tv,
   Info,
-  ArrowLeft
+  ArrowLeft,
+  Volume2
 } from "lucide-react";
 
 const POPULAR_SUGGESTIONS = [
@@ -30,7 +31,7 @@ export default function App() {
   // Core Selection Preferences
   const [interests, setInterests] = useState<string[]>([]);
   const [interestInput, setInterestInput] = useState("");
-  const [mode, setMode] = useState<"text" | "video">("text");
+  const [mode, setMode] = useState<"text" | "voice" | "video">("text");
   const [autoConnect, setAutoConnect] = useState<boolean>(true);
   const [isInsideIframe, setIsInsideIframe] = useState(false);
 
@@ -84,7 +85,7 @@ export default function App() {
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const lastPlayedAudioTrackIdsRef = useRef<string[]>([]);
-  const modeRef = useRef<"text" | "video">(mode);
+  const modeRef = useRef<"text" | "voice" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
@@ -97,6 +98,12 @@ export default function App() {
   const currentPlayingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Sync refs to avoid stale closures in socket events
+  const appStateRef = useRef<AppState>(appState);
+
+  useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
+
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -688,6 +695,7 @@ export default function App() {
 
     // Match established callback
     socket.on("paired", async ({ peerId, initiator, commonInterests: common }) => {
+      if (appStateRef.current === "landing") return;
       partnerIdRef.current = peerId; // STABILIZE REF SYNCHRONOUSLY!
       isInitiatorRef.current = initiator; // Save initiator value!
       setPartnerId(peerId);
@@ -709,24 +717,27 @@ export default function App() {
         addSystemMessage("Searching found a random stranger.");
       }
 
-      // If user selected Video mode, instantly negotiate WebRTC peer stream
-      if (modeRef.current === "video") {
+      // If user selected Video or Voice mode, instantly negotiate WebRTC peer stream
+      if (modeRef.current === "video" || modeRef.current === "voice") {
         await initiateWebRTCPeer(peerId, initiator);
       }
     });
 
     // Handle instant incoming messages
     socket.on("chat-message", ({ text }: { text: string }) => {
+      if (appStateRef.current === "landing") return;
       addMessage("stranger", text);
     });
 
     // Handle typing status indications
     socket.on("typing", ({ isTyping }: { isTyping: boolean }) => {
+      if (appStateRef.current === "landing") return;
       setStrangerIsTyping(isTyping);
     });
 
     // WebRTC signaling relay callback
     socket.on("webrtc-signal", ({ from, signal }) => {
+      if (appStateRef.current === "landing") return;
       const currentPartner = partnerIdRef.current;
       if (from !== currentPartner) return;
       
@@ -767,6 +778,7 @@ export default function App() {
 
     // Handle sudden stranger disconnects or leaves
     socket.on("stranger-disconnected", () => {
+      if (appStateRef.current === "landing") return;
       addSystemMessage("Stranger has disconnected.");
       cleanPeerConnection();
       trackEvent("match_disconnected", { mode: modeRef.current });
@@ -785,7 +797,9 @@ export default function App() {
     socket.on("disconnect", () => {
       addSystemMessage("Lost connection to server. Retrying...");
       cleanPeerConnection();
-      setAppState("idle");
+      if (appStateRef.current !== "landing") {
+        setAppState("idle");
+      }
     });
   };
 
@@ -817,8 +831,10 @@ export default function App() {
   const requestLocalStream = async (): Promise<MediaStream | null> => {
     setIsStreamLoading(true);
     let resolvedStream: MediaStream | null = null;
+    const wantsVideo = modeRef.current === "video";
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints: MediaStreamConstraints = wantsVideo ? {
         video: {
           width: { ideal: 480, max: 640 },
           height: { ideal: 270, max: 360 },
@@ -830,17 +846,26 @@ export default function App() {
           noiseSuppression: true,
           autoGainControl: true
         }
-      });
+      } : {
+        video: false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStreamRef.current = stream;
       setLocalStream(stream);
-      setCameraActive(true);
+      setCameraActive(wantsVideo);
       setMicActive(true);
       resolvedStream = stream;
       return stream;
     } catch (err) {
       console.warn("Optimized media stream denied, attempting standard video+audio fallback...", err);
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const constraintsFallback: MediaStreamConstraints = wantsVideo ? {
           video: {
             width: { ideal: 480, max: 640 },
             height: { ideal: 270, max: 360 },
@@ -851,34 +876,47 @@ export default function App() {
             noiseSuppression: true,
             autoGainControl: true
           }
-        });
+        } : {
+          video: false,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraintsFallback);
         localStreamRef.current = stream;
         setLocalStream(stream);
-        setCameraActive(true);
+        setCameraActive(wantsVideo);
         setMicActive(true);
         resolvedStream = stream;
         return stream;
       } catch (err15) {
-        console.warn("Standard video+audio fallback failed, attempting video-only/voice fallbacks...", err15);
+        console.warn("Standard fallback failed, attempting video-only/voice fallbacks...", err15);
         try {
-          // Fallback 1: Video-only if microphone is blocked or missing
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 480, max: 640 },
-              height: { ideal: 270, max: 360 },
-              frameRate: { ideal: 15, max: 20 }
-            },
-            audio: false
-          });
-          localStreamRef.current = stream;
-          setLocalStream(stream);
-          setCameraActive(true);
-          setMicActive(false);
-          resolvedStream = stream;
-          return stream;
+          if (wantsVideo) {
+            // Fallback 1: Video-only if microphone is blocked or missing
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                width: { ideal: 480, max: 640 },
+                height: { ideal: 270, max: 360 },
+                frameRate: { ideal: 15, max: 20 }
+              },
+              audio: false
+            });
+            localStreamRef.current = stream;
+            setLocalStream(stream);
+            setCameraActive(true);
+            setMicActive(false);
+            resolvedStream = stream;
+            return stream;
+          } else {
+            throw new Error("Voice only mode has no video fallback.");
+          }
         } catch (err2) {
           try {
-            // Fallback 2: Audio-only if webcam is blocked or missing
+            // Fallback 2: Audio-only if webcam is blocked or missing (or always for voice)
             const stream = await navigator.mediaDevices.getUserMedia({
               video: false,
               audio: {
@@ -1233,11 +1271,13 @@ export default function App() {
       // when the local user's camera / microphone access is disabled or not yet resolved.
       try {
         pc.addTransceiver("audio", { direction: "recvonly" });
-        pc.addTransceiver("video", { direction: "recvonly" });
+        if (modeRef.current === "video") {
+          pc.addTransceiver("video", { direction: "recvonly" });
+        }
       } catch (err) {
         console.warn("[WEBRTC] Failed to add recvonly transceivers:", err);
       }
-      addSystemMessage("Joining without active camera feed.");
+      addSystemMessage(modeRef.current === "video" ? "Joining without active camera feed." : "Joining without active microphone feed.");
     }
 
     // Handle receiving incoming track with high-availability track merging
@@ -1554,9 +1594,9 @@ export default function App() {
 
     addSystemMessage("Routing to connection pool...");
 
-    // Lazy camera setup ahead of routing to maintain flow
-    if (mode === "video") {
-      addSystemMessage("Booting camera interface...");
+    // Lazy media setup ahead of routing to maintain flow
+    if (mode === "video" || mode === "voice") {
+      addSystemMessage(mode === "video" ? "Booting camera interface..." : "Booting microphone interface...");
       await requestLocalStream();
     }
 
@@ -1755,8 +1795,9 @@ export default function App() {
               {/* Center Dashboard */}
               <div className="flex-grow max-w-4xl grid md:grid-cols-5 gap-6">
                 
-                {/* Left Columns - Welcome and Preferences configs */}
+                {/* Left Columns - Welcome and Preference config combined into a cohesive clean layout */}
                 <div className="md:col-span-3 space-y-6">
+                  {/* Hero section */}
                   <div className="space-y-3">
                     <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-xs text-indigo-700 font-semibold">
                       <Sparkles className="w-3.5 h-3.5" /> True Anonymous Connections
@@ -1769,102 +1810,105 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Comma interests tag collector */}
-                  <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Shared Interests (Optional)</label>
-                      <p className="text-[11px] text-slate-450 leading-relaxed">Type interest categories and press <kbd className="font-semibold bg-slate-50 px-1 py-0.5 rounded border border-slate-200">Enter</kbd> or use comma separators.</p>
-                    </div>
+                  {/* Merged Input & Mode Selector Box */}
+                  <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-6">
+                    {/* Part 1: Shared Interests (Optional) */}
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Shared Interests (Optional)</label>
+                        <p className="text-[11px] text-slate-450 leading-relaxed">Type interest categories and press <kbd className="font-semibold bg-slate-50 px-1 py-0.5 rounded border border-slate-200">Enter</kbd> or use comma separators.</p>
+                      </div>
 
-                    <div className="flex flex-wrap gap-1.5 min-h-[44px] p-2 bg-slate-50 rounded-xl border border-slate-200/60 focus-within:ring-2 focus-within:ring-indigo-600/20 focus-within:border-indigo-600 transition-all">
-                      {interests.map((tag) => (
-                        <span key={tag} className="inline-flex items-center gap-1 bg-indigo-600 text-white pl-2.5 pr-1.5 py-1 rounded-lg text-xs font-semibold shadow-2xs">
-                          {tag}
-                          <button onClick={() => removeInterest(tag)} className="p-0.5 text-indigo-300 hover:text-white hover:bg-indigo-500 rounded-md transition-colors">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                      <input
-                        id="input-interests-tag"
-                        type="text"
-                        placeholder={interests.length ? "Add more..." : "e.g., music, coding, gaming..."}
-                        value={interestInput}
-                        onChange={(e) => setInterestInput(e.target.value)}
-                        onKeyDown={handleInterestKeyDown}
-                        className="flex-1 bg-transparent border-0 outline-hidden min-w-[120px] text-xs font-medium text-slate-800"
-                      />
-                    </div>
-
-                    {/* Pre-seeded popular suggestions */}
-                    <div className="space-y-2">
-                      <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Popular Categories:</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {POPULAR_SUGGESTIONS.map((item) => (
-                          <button
-                            key={item}
-                            onClick={() => addInterest(item)}
-                            disabled={interests.includes(item)}
-                            className="bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-40 disabled:hover:bg-white border border-slate-200 px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
-                          >
-                            + {item}
-                          </button>
+                      <div className="flex flex-wrap gap-1.5 min-h-[44px] p-2 bg-slate-50 rounded-xl border border-slate-200/60 focus-within:ring-2 focus-within:ring-indigo-600/20 focus-within:border-indigo-600 transition-all">
+                        {interests.map((tag) => (
+                          <span key={tag} className="inline-flex items-center gap-1 bg-indigo-600 text-white pl-2.5 pr-1.5 py-1 rounded-lg text-xs font-semibold shadow-2xs">
+                            {tag}
+                            <button onClick={() => removeInterest(tag)} className="p-0.5 text-indigo-300 hover:text-white hover:bg-indigo-500 rounded-md transition-colors">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
                         ))}
+                        <input
+                          id="input-interests-tag"
+                          type="text"
+                          placeholder={interests.length ? "Add more..." : "e.g., music, coding, gaming..."}
+                          value={interestInput}
+                          onChange={(e) => setInterestInput(e.target.value)}
+                          onKeyDown={handleInterestKeyDown}
+                          className="flex-1 bg-transparent border-0 outline-hidden min-w-[120px] text-xs font-medium text-slate-800"
+                        />
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Right Columns - Mode Selection card and Go Button */}
-                <div className="md:col-span-2 flex flex-col justify-between space-y-4">
-                  <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex-1 flex flex-col justify-between space-y-6">
-                    <div className="space-y-3">
+                    <div className="border-t border-slate-100 pt-5 space-y-4">
                       <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Choose Matching Mode</span>
-                      
-                      <div className="space-y-3">
+                                            <div className="grid sm:grid-cols-3 gap-3">
                         {/* Option 1: Text */}
                         <div 
                           id="mode-option-text"
                           onClick={() => setMode("text")}
-                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3.5 select-none ${
+                          className={`group p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
                             mode === "text" 
-                              ? "border-indigo-600 bg-indigo-50/20" 
-                              : "border-slate-100 hover:border-slate-200 bg-slate-50/50"
+                              ? "border-indigo-600 bg-indigo-50/20 shadow-xs shadow-indigo-600/5" 
+                              : "border-slate-100 hover:border-indigo-600/30 hover:shadow-xs hover:-translate-y-0.5 bg-white"
                           }`}
                         >
-                          <div className={`p-2.5 rounded-lg shrink-0 ${mode === "text" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
-                            <MessageSquare className="w-5 h-5" />
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
+                            mode === "text" 
+                              ? "bg-indigo-600 text-white shadow-xs shadow-indigo-500/20" 
+                              : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
+                          }`}>
+                            <MessageSquare className="w-4 h-4" />
                           </div>
-                          <div className="space-y-0.5">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Chat Text Only</h4>
-                            <p className="text-[11px] text-slate-500 leading-normal">Fast, anonymous texting matches. Optimized for tags and standard speed chats.</p>
+                          <div className="space-y-1">
+                            <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Text Chat Only</h4>
+                            <p className="text-[10px] text-slate-500 leading-relaxed">Fast, anonymous texting matches. Optimized for speed.</p>
                           </div>
                         </div>
 
-                        {/* Option 2: Video */}
+                        {/* Option 2: Voice */}
+                        <div 
+                          id="mode-option-voice"
+                          onClick={() => setMode("voice")}
+                          className={`group p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
+                            mode === "voice" 
+                              ? "border-indigo-600 bg-indigo-50/20 shadow-xs shadow-indigo-600/5" 
+                              : "border-slate-100 hover:border-indigo-600/30 hover:shadow-xs hover:-translate-y-0.5 bg-white"
+                          }`}
+                        >
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
+                            mode === "voice" 
+                              ? "bg-indigo-600 text-white shadow-xs shadow-indigo-500/20" 
+                              : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
+                          }`}>
+                            <Volume2 className="w-4 h-4" />
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Voice & Text</h4>
+                            <p className="text-[10px] text-slate-500 leading-relaxed">Voice audio stream along with standard text chat.</p>
+                          </div>
+                        </div>
+
+                        {/* Option 3: Video */}
                         <div 
                           id="mode-option-video"
                           onClick={() => setMode("video")}
-                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col gap-3 select-none ${
+                          className={`group p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
                             mode === "video" 
-                              ? "border-indigo-600 bg-indigo-50/20" 
-                              : "border-slate-100 hover:border-slate-200 bg-slate-50/50"
+                              ? "border-indigo-600 bg-indigo-50/20 shadow-xs shadow-indigo-600/5" 
+                              : "border-slate-100 hover:border-indigo-600/30 hover:shadow-xs hover:-translate-y-0.5 bg-white"
                           }`}
                         >
-                          <div className="flex items-start gap-3.5">
-                            <div className={`p-2.5 rounded-lg shrink-0 ${mode === "video" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
-                              <Video className="w-5 h-5" />
-                            </div>
-                            <div className="space-y-0.5">
-                              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Webcam Video & Voice</h4>
-                              <p className="text-[11px] text-slate-500 leading-normal">Enable webcam audio & video dynamically with high quality WebRTC tunnels.</p>
-                            </div>
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
+                            mode === "video" 
+                              ? "bg-indigo-600 text-white shadow-xs shadow-indigo-500/20" 
+                              : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
+                          }`}>
+                            <Video className="w-4 h-4" />
                           </div>
-                          {isInsideIframe && (
-                            <div className="bg-amber-500/10 border border-amber-500/25 px-3 py-2 rounded-lg text-[10px] text-amber-700 leading-relaxed font-bold">
-                              ⚠️ Sandbox restriction detected. Real-time video/audio chat requires visiting this app directly in a full secure browser tab.
-                            </div>
-                          )}
+                          <div className="space-y-1">
+                            <h4 className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Webcam & Voice</h4>
+                            <p className="text-[10px] text-slate-500 leading-relaxed">Dynamic audio & video feeds alongside standard chat.</p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1887,7 +1931,7 @@ export default function App() {
                               setShowTermsDetail(!showTermsDetail);
                               setShowPrivacyDetail(false);
                             }}
-                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
+                            className="text-indigo-605 text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
                           >
                             Terms of Use
                           </button>
@@ -1898,7 +1942,7 @@ export default function App() {
                               setShowPrivacyDetail(!showPrivacyDetail);
                               setShowTermsDetail(false);
                             }}
-                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
+                            className="text-indigo-605 text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
                           >
                             Privacy Policy
                           </button>
@@ -1942,6 +1986,17 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
+
+                      {/* Integrated P2P Safety & Encryption block */}
+                      <div className="border-t border-slate-200/80 pt-2.5 mt-1.5 flex gap-2.5">
+                        <ShieldCheck className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <h5 className="text-[11px] font-bold text-sky-900 tracking-wide">P2P Encrypted Streams</h5>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">
+                            Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Massive matching start trigger button */}
@@ -1959,37 +2014,12 @@ export default function App() {
                       <Sparkles className="w-4 h-4 text-sky-300" />
                     </button>
 
-                    {isInsideIframe && mode === "video" && (
-                      <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-[11px] text-amber-700 leading-normal font-medium text-center space-y-1 mt-1">
-                        <div>
-                          ⚠️ <strong>Environment Notice:</strong> Sandbox frames (like AI Studio previews) restrict custom browser media routing.
-                        </div>
-                        <div>
-                          If video/audio connection fails, please{" "}
-                          <a
-                            href={typeof window !== "undefined" ? window.location.href : "#"}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                            className="text-indigo-600 hover:underline font-bold"
-                          >
-                            Open in a Secure New Tab ↗
-                          </a>
-                        </div>
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Safety & Encryption warning card */}
-                  <div className="bg-[#f0f9ff]/80 border border-sky-100 rounded-xl p-4 flex gap-3">
-                    <ShieldCheck className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <h5 className="text-xs font-bold text-sky-900 tracking-wide">P2P Encrypted Streams</h5>
-                      <p className="text-[10px] text-sky-700 leading-relaxed">
-                        Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
-                      </p>
-                    </div>
                   </div>
+                </div>
 
+                {/* Right Columns - Ads */}
+                <div className="md:col-span-2 flex flex-col justify-start">
                   {/* Dynamic Adsterra Right Column Rectangular Ad Banner */}
                   <div className="flex flex-col items-center gap-1.5 py-1 text-center select-none shadow-3xs rounded-xl bg-white border border-slate-100 p-2">
                     <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-xl border border-slate-100 bg-white shadow-2xs" />
@@ -2006,12 +2036,12 @@ export default function App() {
           ) : (
             // Active Messaging Sandbox Stage with flanking Skyscraper Ads
             <div className={`flex-grow flex-1 flex flex-row w-full max-w-[1720px] mx-auto h-full min-h-0 overflow-hidden ${
-              mode === "video" ? "bg-slate-900" : "bg-slate-50"
+              mode !== "text" ? "bg-slate-900" : "bg-slate-50"
             }`}>
 
               {/* Left Chat Ad Column */}
-              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-r py-3 select-none ${
-                mode === "video" 
+              <div className={`hidden ${mode !== "text" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-r py-3 select-none ${
+                mode !== "text" 
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
@@ -2029,8 +2059,8 @@ export default function App() {
                 exit={{ opacity: 0 }}
                 className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-full w-full relative flex flex-col lg:grid lg:grid-cols-2 outline-hidden bg-slate-900 min-h-0 overflow-hidden"}
               >
-                {/* Media pane (left column: custom video feed, only shown in video mode!) */}
-                {mode === "video" && (
+                {/* Media pane (left column: custom video feed / voice visualizer) */}
+                {mode !== "text" && (
                   <div className="h-[200px] xs:h-[240px] sm:h-[280px] md:h-[320px] lg:h-full w-full relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none border-b border-slate-800/80 flex flex-col shrink-0 min-h-0">
                     <VideoPlayer
                       localStream={localStream}
@@ -2073,8 +2103,8 @@ export default function App() {
               </motion.div>
 
               {/* Right Chat Ad Column */}
-              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-l py-3 select-none ${
-                mode === "video" 
+              <div className={`hidden ${mode !== "text" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-l py-3 select-none ${
+                mode !== "text" 
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>

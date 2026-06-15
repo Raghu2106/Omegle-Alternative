@@ -34,7 +34,7 @@ async function startServer() {
   interface Searcher {
     socketId: string;
     interests: string[];
-    mode: "text" | "video";
+    mode: "text" | "voice" | "video";
     socket: any;
     joinedAt: number; // For tracking the 5-second interest priority grace period
   }
@@ -158,7 +158,7 @@ async function startServer() {
     };
 
     // Begin search event
-    socket.on("start-search", ({ interests, mode }: { interests: string[]; mode: "text" | "video" }) => {
+    socket.on("start-search", ({ interests, mode }: { interests: string[]; mode: "text" | "voice" | "video" }) => {
       cleanUpUser();
 
       const normalizedInterests = (interests || [])

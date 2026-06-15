@@ -12,7 +12,7 @@ interface VideoPlayerProps {
   micActive: boolean;
   onToggleCamera: () => void;
   onToggleMic: () => void;
-  mode: "text" | "video";
+  mode: "text" | "voice" | "video";
   webrtcStatus?: string;
   onRetryWebRTC?: () => void;
   remoteVideoFrame?: string | null;
@@ -290,6 +290,172 @@ export default function VideoPlayer({
             </ul>
           </div>
         </motion.div>
+      </div>
+    );
+  }
+
+  if (mode === "voice") {
+    return (
+      <div className="flex flex-col items-center justify-between h-full bg-slate-950 p-6 text-center border-r border-slate-900 select-none overflow-hidden relative">
+        {/* Decorative background grid */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f2937_1px,transparent_1px),linear-gradient(to_bottom,#1f2937_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-20 pointer-events-none" />
+
+        {/* Top bar: Room indicators and status */}
+        <div className="w-full flex items-center justify-between z-10">
+          <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2.5 py-1 rounded-full text-slate-200 flex items-center gap-1.5 font-medium shadow-xs">
+            <span className={`w-1.5 h-1.5 rounded-full ${getWebrtcStatusColorClass()}`} />
+            Voice Channel{getWebrtcStatusLabel()}
+          </div>
+          
+          {isInsideIframe && (
+            <span className="text-[10px] bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md text-amber-500 font-medium">
+              Sandbox active
+            </span>
+          )}
+        </div>
+
+        {/* Main section: Pulsing orbits and connection flow */}
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex-grow flex flex-col items-center justify-center w-full max-w-sm space-y-8 z-10"
+        >
+          {/* Avatar pairing visualizer */}
+          <div className="flex items-center justify-center gap-x-8 sm:gap-x-12 relative">
+            
+            {/* YOU avatar circle with active pulse */}
+            <div className="relative">
+              <div className={`absolute -inset-4 rounded-full bg-indigo-500/10 blur-md ${micActive && isPaired ? "animate-pulse" : ""}`} />
+              <motion.div 
+                className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border flex items-center justify-center flex-col transition-all overflow-hidden ${
+                  micActive 
+                    ? "bg-indigo-600/10 border-indigo-500/40 text-indigo-400" 
+                    : "bg-slate-900 border-slate-800 text-slate-500"
+                }`}
+              >
+                {micActive ? (
+                  <Mic className="w-5 h-5 sm:w-6 sm:h-6 animate-pulse" />
+                ) : (
+                  <MicOff className="w-5 h-5 sm:w-6 sm:h-6" />
+                )}
+                <span className="text-[9px] font-bold mt-1 uppercase tracking-wider">You</span>
+              </motion.div>
+            </div>
+
+            {/* Connecting waves / line in between */}
+            <div className="flex items-center justify-center gap-1 w-12 sm:w-16 h-8 relative">
+              {isPaired ? (
+                // Playing wave bars
+                <div className="flex items-end justify-center gap-1 h-6 w-full">
+                  {[0.4, 0.9, 0.5, 0.7, 0.3, 0.8, 0.6].map((offset, idx) => (
+                    <motion.div
+                      key={idx}
+                      animate={{
+                        height: micActive ? ["4px", "24px", "4px"] : "4px"
+                      }}
+                      transition={{
+                        repeat: Infinity,
+                        duration: 0.8 / offset,
+                        ease: "easeInOut",
+                        delay: idx * 0.1
+                      }}
+                      className="w-1 rounded-full bg-linear-to-t from-indigo-500 to-sky-400"
+                    />
+                  ))}
+                </div>
+              ) : (
+                // Searching radar line dot
+                <motion.div
+                  animate={{
+                    translateX: ["-24px", "24px", "-24px"]
+                  }}
+                  transition={{
+                    repeat: Infinity,
+                    duration: 1.6,
+                    ease: "easeInOut"
+                  }}
+                  className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_#38bdf8]"
+                />
+              )}
+            </div>
+
+            {/* STRANGER avatar circle with active pulse */}
+            <div className="relative">
+              <div className={`absolute -inset-4 rounded-full bg-sky-500/10 blur-md ${isPaired ? "animate-pulse" : ""}`} />
+              <motion.div 
+                className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border flex items-center justify-center flex-col transition-all overflow-hidden ${
+                  isPaired 
+                    ? "bg-sky-500/10 border-sky-500/40 text-sky-400" 
+                    : "bg-slate-900 border-slate-800 text-slate-500"
+                }`}
+              >
+                <Users className="w-5 h-5 sm:w-6 sm:h-6" />
+                <span className="text-[9px] font-bold mt-1 uppercase tracking-wider">Stranger</span>
+              </motion.div>
+            </div>
+          </div>
+
+          {/* Connection text */}
+          <div className="space-y-1">
+            {isSearching ? (
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-sky-400 uppercase tracking-widest animate-pulse">Scanning Voice Pool</h4>
+                <p className="text-[11px] text-slate-400">Waiting for an available voice connection match...</p>
+              </div>
+            ) : isPaired ? (
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-indigo-400 uppercase tracking-widest">Voice Tunnel Active</h4>
+                <p className="text-[11px] text-slate-400">Connected with matching stranger. Speak clearly!</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Voice Channel Idle</h4>
+                <p className="text-[11px] text-slate-500 font-medium">Press Start Chatting or Find Match to sync.</p>
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Bottom Panel: Mic controls */}
+        <div className="w-full flex justify-center pb-4 z-10">
+          <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-2xl shadow-xl">
+            <button
+              id="bg-btn-voice-toggle-mic"
+              type="button"
+              onClick={onToggleMic}
+              className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                micActive
+                  ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20"
+                  : "bg-rose-500/25 hover:bg-rose-500/35 text-rose-400 border border-rose-500/30 font-medium"
+              }`}
+              title={micActive ? "Mute Microphone" : "Unmute Microphone"}
+            >
+              <div className="flex items-center gap-2 px-1">
+                {micActive ? (
+                  <>
+                    <Mic className="w-4 h-4 animate-pulse" />
+                    <span className="text-xs font-bold">Mic Active</span>
+                  </>
+                ) : (
+                  <>
+                    <MicOff className="w-4 h-4" />
+                    <span className="text-xs font-bold">Muted</span>
+                  </>
+                )}
+              </div>
+            </button>
+            
+            {onRetryWebRTC && (webrtcStatus === "failed" || webrtcStatus === "disconnected") && (
+              <button
+                type="button"
+                onClick={onRetryWebRTC}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer border border-slate-700"
+              >
+                Re-connect P2P
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
