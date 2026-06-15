@@ -75,6 +75,7 @@ export default function VideoPlayer({
   const localVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     localVideoRef.current = el;
     if (el && localStream) {
+      el.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
       if (el.srcObject !== localStream) {
         console.log("[VideoPlayer] Binding localStream to video element via callback ref");
         el.srcObject = localStream;
@@ -194,6 +195,7 @@ export default function VideoPlayer({
   // Keep references updated
   useEffect(() => {
     if (localVideoRef.current && localStream) {
+      localVideoRef.current.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
       localVideoRef.current.srcObject = localStream;
       localVideoRef.current.play().catch((err) => {
         console.warn("[VideoPlayer] Local video play failed: ", err);

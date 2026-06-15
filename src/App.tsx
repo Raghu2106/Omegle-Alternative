@@ -261,23 +261,41 @@ export default function App() {
         };
 
         recorder.onstop = () => {
-          if (chunks.length > 0) {
+          const pc = pcRef.current;
+          const isWebRTCActiveNow = pc && (
+            pc.connectionState === "connected" || 
+            pc.iceConnectionState === "connected" || 
+            pc.connectionState === "completed" || 
+            pc.iceConnectionState === "completed"
+          );
+
+          if (chunks.length > 0 && !isWebRTCActiveNow) {
             const audioBlob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
             const reader = new FileReader();
             reader.onloadend = () => {
               const base64Audio = reader.result as string;
               if (socket && partnerIdRef.current === currentPartner) {
-                socket.emit("webrtc-signal", {
-                  to: currentPartner,
-                  signal: { mediaAudioChunk: base64Audio }
-                });
+                // Double check WebRTC state right before sending
+                const finalPc = pcRef.current;
+                const finalWebRTCActive = finalPc && (
+                  finalPc.connectionState === "connected" || 
+                  finalPc.iceConnectionState === "connected" || 
+                  finalPc.connectionState === "completed" || 
+                  finalPc.iceConnectionState === "completed"
+                );
+                if (!finalWebRTCActive) {
+                  socket.emit("webrtc-signal", {
+                    to: currentPartner,
+                    signal: { mediaAudioChunk: base64Audio }
+                  });
+                }
               }
             };
             reader.readAsDataURL(audioBlob);
           }
 
-          // Trigger next slice if active
-          if (audioLoopActive) {
+          // Trigger next slice if active and standard WebRTC is still not alive
+          if (audioLoopActive && !isWebRTCActiveNow) {
             pendingTimeoutId = setTimeout(startRecordingBurst, 10);
           }
         };
@@ -726,6 +744,9 @@ export default function App() {
           if (!isPlayingAudioQueueRef.current) {
             playNextAudioQueueChunk();
           }
+        } else {
+          // If WebRTC took over, immediately silence and discard any trailing fallback audio chunks to prevent echo
+          stopAndClearFallbackAudio();
         }
       } else {
         enqueueSignal(signal, from);
@@ -943,10 +964,10 @@ export default function App() {
     setMicActive(false);
   };
 
-  // SDP bandwidth/bitrate modifier to lock in crystal-clear high-definition video and robust stereo audio
+  // SDP bandwidth/bitrate modifier to lock in fluid low-latency video and noise-cancelled mono voice
   const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 1500; // 1.5 Mbps is outstanding for smooth 720p HD stream and prevents packet choke on constrained relays
-    const audioBitrateKbps = 64;   // 64 Kbps is excellent HD stereo sound representation for crystal clear voice calls
+    const videoBitrateKbps = 800; // 800 Kbps prevents bufferbloat/jitter queueing and keeps voice perfectly in sync
+    const audioBitrateKbps = 32;   // 32 Kbps is optimized mono average bitrate for minimum buffer delay and perfect hardware echo cancellation
 
     let lines = sdp.split("\r\n");
     let modifiedLines: string[] = [];
@@ -983,14 +1004,15 @@ export default function App() {
       if (isVideoSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:"))) {
         continue;
       }
-      if (isAudioSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:"))) {
+      if (isAudioSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:") || line.startsWith("a=ptime:") || line.startsWith("a=maxptime:"))) {
         continue;
       }
 
-      // Overwrite Opus media format parameters to unlock maximum quality
+      // Overwrite Opus media format parameters for seamless, lowest-latency mono voice and standard echo cancellation
       if (isAudioSection && opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) {
-        // Boost Opus config safely with inband FEC (Forward Error Correction) and robust bitrates
-        line = `a=fmtp:${opusPayloadType} useinbandfec=1;stereo=1;sprop-stereo=1;usedtx=1;maxaveragebitrate=${audioBitrateKbps * 1000}`;
+        // Set stereo=0 and sprop-stereo=0. This lets browser echo-cancellation (AEC) map nicely to the microphone
+        // Inject ptime=20 and minptime=10 for fast 10-20ms packetization frames (reduces codec latency from the default 40-60ms)
+        line = `a=fmtp:${opusPayloadType} useinbandfec=1;stereo=0;sprop-stereo=0;usedtx=1;maxaveragebitrate=${audioBitrateKbps * 1000};ptime=20;minptime=10`;
       }
 
       modifiedLines.push(line);
@@ -1003,6 +1025,8 @@ export default function App() {
       if (line.startsWith("m=audio")) {
         modifiedLines.push(`b=AS:${audioBitrateKbps}`);
         modifiedLines.push(`b=TIAS:${audioBitrateKbps * 1000}`);
+        modifiedLines.push("a=ptime:20");
+        modifiedLines.push("a=maxptime:20");
       }
     }
 
