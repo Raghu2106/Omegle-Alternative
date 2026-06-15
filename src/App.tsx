@@ -656,18 +656,15 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { min: 1280, ideal: 1920 },
-          height: { min: 720, ideal: 1080 },
-          frameRate: { min: 24, ideal: 30, max: 60 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
           facingMode: "user"
         },
         audio: {
           echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: false }, // Avoid aggressive gate suppression of vocal frequency range
-          autoGainControl: { ideal: true },
-          channelCount: { ideal: 2 }, // Stereo channels
-          sampleRate: { ideal: 48000 }, // High fidelity CD dynamic sample rate
-          sampleSize: { ideal: 16 }
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true }
         }
       });
       localStreamRef.current = stream;
@@ -687,7 +684,7 @@ export default function App() {
           },
           audio: {
             echoCancellation: { ideal: true },
-            noiseSuppression: { ideal: false },
+            noiseSuppression: { ideal: true },
             autoGainControl: { ideal: true }
           }
         });
@@ -722,7 +719,7 @@ export default function App() {
               video: false,
               audio: {
                 echoCancellation: { ideal: true },
-                noiseSuppression: { ideal: false },
+                noiseSuppression: { ideal: true },
                 autoGainControl: { ideal: true }
               }
             });
@@ -817,8 +814,8 @@ export default function App() {
 
   // SDP bandwidth/bitrate modifier to lock in crystal-clear high-definition video and robust stereo audio
   const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 4000; // Force 4.0 Mbps for crisp high-definition 1080p stream
-    const audioBitrateKbps = 160;  // Force 160 Kbps ultra-vivid stereo CD audio representation
+    const videoBitrateKbps = 2500; // 2.5 Mbps is beautiful for clear 1080p/720p stream without packet choke
+    const audioBitrateKbps = 128;  // 128 Kbps is stellar stereo sound
 
     let lines = sdp.split("\r\n");
     let modifiedLines: string[] = [];
@@ -861,8 +858,8 @@ export default function App() {
 
       // Overwrite Opus media format parameters to unlock maximum quality
       if (isAudioSection && opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) {
-        // Boost Opus config to enable stereo, enable high audio fidelity, disable DTX (which acts as voice gate-cut), and specify bitrates
-        line = `a=fmtp:${opusPayloadType} minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=${audioBitrateKbps * 1000};cbr=1`;
+        // Boost Opus config safely without breaking the SDP parse engines
+        line = `a=fmtp:${opusPayloadType} useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=${audioBitrateKbps * 1000}`;
       }
 
       modifiedLines.push(line);
