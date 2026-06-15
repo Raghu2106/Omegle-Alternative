@@ -486,7 +486,7 @@ export default function VideoPlayer({
             ref={localVideoCallback}
             autoPlay
             playsInline
-            muted
+            muted={true}
             className="w-full h-full bg-slate-950 mirror-mode object-cover"
           />
         ) : (

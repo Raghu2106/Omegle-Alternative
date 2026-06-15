@@ -91,6 +91,7 @@ export default function App() {
   // Sequenced fallback audio queue references to eliminate playback overlapping stutter
   const audioQueueRef = useRef<string[]>([]);
   const isPlayingAudioQueueRef = useRef<boolean>(false);
+  const currentPlayingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Sync refs to avoid stale closures in socket events
   useEffect(() => {
@@ -556,6 +557,21 @@ export default function App() {
     processSequentialQueue();
   };
 
+  const stopAndClearFallbackAudio = () => {
+    if (currentPlayingAudioRef.current) {
+      try {
+        console.log("[AudioRelay] Actively silencing and stopping playing fallback audio chunk to eliminate echo.");
+        currentPlayingAudioRef.current.pause();
+        currentPlayingAudioRef.current.src = "";
+      } catch (err) {
+        console.warn("[AudioRelay] Error pausing playing audio reference:", err);
+      }
+      currentPlayingAudioRef.current = null;
+    }
+    audioQueueRef.current = [];
+    isPlayingAudioQueueRef.current = false;
+  };
+
   // Process sequentially queued base64 voice slices to eliminate playback overlapping stutter
   const playNextAudioQueueChunk = () => {
     const pc = pcRef.current;
@@ -566,9 +582,7 @@ export default function App() {
       pc.iceConnectionState === "completed"
     );
     if (isWebRTCActive) {
-      // Clear queue if stable direct WebRTC has taken over
-      audioQueueRef.current = [];
-      isPlayingAudioQueueRef.current = false;
+      stopAndClearFallbackAudio();
       return;
     }
 
@@ -593,16 +607,28 @@ export default function App() {
 
     try {
       const audio = new Audio(nextChunk);
+      currentPlayingAudioRef.current = audio;
       audio.volume = 1.0;
       audio.onended = () => {
+        if (currentPlayingAudioRef.current === audio) {
+          currentPlayingAudioRef.current = null;
+        }
         playNextAudioQueueChunk();
       };
       audio.onerror = () => {
         console.warn("[AudioRelay] Failed playing audio chunk from queue, skipping...");
+        if (currentPlayingAudioRef.current === audio) {
+          currentPlayingAudioRef.current = null;
+        }
         playNextAudioQueueChunk();
       };
-      audio.play().catch((err) => {
+      audio.play().then(() => {
+        // Successfully playing
+      }).catch((err) => {
         console.log("[AudioRelay] Playback deferred:", err.message);
+        if (currentPlayingAudioRef.current === audio) {
+          currentPlayingAudioRef.current = null;
+        }
         // If playback was deferred (e.g. user gesture block), retry in next cycle or skip
         // to prevent blocking the queue.
         setTimeout(playNextAudioQueueChunk, 800);
@@ -1076,6 +1102,7 @@ export default function App() {
       setWebrtcStatus(pc.iceConnectionState);
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         logSelectedCandidatePair();
+        stopAndClearFallbackAudio();
       }
       if (pc.iceConnectionState === "failed") {
         console.warn("[ICE] ICE Connection failed. Triggering ICE restart...");
@@ -1087,6 +1114,7 @@ export default function App() {
       setWebrtcStatus(pc.connectionState);
       if (pc.connectionState === "connected") {
         logSelectedCandidatePair();
+        stopAndClearFallbackAudio();
       }
       if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
         console.warn("[WEBRTC] PeerConnection failed or disconnected. Triggering ICE restart...");
@@ -1283,6 +1311,7 @@ export default function App() {
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
     setWebrtcStatus("idle");
+    stopAndClearFallbackAudio();
   };
 
   // Interest list management
