@@ -88,6 +88,10 @@ export default function App() {
   const pendingRemoteCandidatesRef = useRef<any[]>([]);
   const isInitiatorRef = useRef<boolean>(false);
 
+  // Sequenced fallback audio queue references to eliminate playback overlapping stutter
+  const audioQueueRef = useRef<string[]>([]);
+  const isPlayingAudioQueueRef = useRef<boolean>(false);
+
   // Sync refs to avoid stale closures in socket events
   useEffect(() => {
     modeRef.current = mode;
@@ -207,52 +211,99 @@ export default function App() {
       }, 180); // optimized slide-stream rate (~5.5 fps) to save considerable bandwidth when fallback is active
     }
 
-    // 2. Audio chunks capturing/encoding (running in 250ms chunks)
-    if (micActive && localStream) {
+    // 2. Audio chunks capturing/encoding (running in independent 1.1s burst recorder loops)
+    let audioLoopActive = true;
+    let pendingTimeoutId: any = null;
+    let currentRecorder: MediaRecorder | null = null;
+
+    const startRecordingBurst = () => {
+      const pc = pcRef.current;
+      const isWebRTCActive = pc && (
+        pc.connectionState === "connected" || 
+        pc.iceConnectionState === "connected" || 
+        pc.connectionState === "completed" || 
+        pc.iceConnectionState === "completed"
+      );
+      if (!audioLoopActive || !micActive || !localStream || isWebRTCActive) {
+        return;
+      }
+
       const audioTracks = localStream.getAudioTracks();
-      if (audioTracks.length > 0) {
+      if (audioTracks.length === 0) return;
+
+      try {
+        const recordStream = new MediaStream(audioTracks);
+        let mimeOption = "";
         try {
-          const recordStream = new MediaStream(audioTracks);
-          let mimeOption = "";
-          try {
-            if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-              mimeOption = "audio/webm;codecs=opus";
-            } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-              mimeOption = "audio/mp4";
-            } else if (MediaRecorder.isTypeSupported("audio/aac")) {
-              mimeOption = "audio/aac";
-            }
-          } catch (e) {
-            // isTypeSupported fallback
+          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+            mimeOption = "audio/webm;codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+            mimeOption = "audio/mp4";
+          } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+            mimeOption = "audio/aac";
+          }
+        } catch (e) {
+          // ignore check errors
+        }
+
+        const recorder = new MediaRecorder(
+          recordStream,
+          mimeOption ? { mimeType: mimeOption } : undefined
+        );
+        currentRecorder = recorder;
+
+        const chunks: Blob[] = [];
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          if (chunks.length > 0) {
+            const audioBlob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64Audio = reader.result as string;
+              if (socket && partnerIdRef.current === currentPartner) {
+                socket.emit("webrtc-signal", {
+                  to: currentPartner,
+                  signal: { mediaAudioChunk: base64Audio }
+                });
+              }
+            };
+            reader.readAsDataURL(audioBlob);
           }
 
-          const recorder = new MediaRecorder(
-            recordStream,
-            mimeOption ? { mimeType: mimeOption } : undefined
-          );
+          // Trigger next slice if active
+          if (audioLoopActive) {
+            pendingTimeoutId = setTimeout(startRecordingBurst, 40);
+          }
+        };
 
-          recorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Audio = reader.result as string;
-                if (socket && partnerIdRef.current === currentPartner) {
-                  socket.emit("webrtc-signal", {
-                    to: currentPartner,
-                    signal: { mediaAudioChunk: base64Audio }
-                  });
-                }
-              };
-              reader.readAsDataURL(event.data);
+        recorder.start();
+
+        // Let the burst record for exactly 1.1 seconds to get beautiful, solid, continuous HD audio chunks with headers
+        pendingTimeoutId = setTimeout(() => {
+          if (recorder.state !== "inactive") {
+            try {
+              recorder.stop();
+            } catch (err) {
+              // ignore
             }
-          };
+          }
+        }, 1100);
 
-          audioRecorder = recorder;
-          recorder.start(350); // Emit audio slices every 350ms to minimize WebSocket transmission packet spikes
-        } catch (recorderErr) {
-          console.error("[MediaRelay] Failed to bootstrap custom audio recorder fallback:", recorderErr);
+      } catch (recorderErr) {
+        console.error("[MediaRelay] Blocked audio recording slice:", recorderErr);
+        if (audioLoopActive) {
+          pendingTimeoutId = setTimeout(startRecordingBurst, 500);
         }
       }
+    };
+
+    if (micActive && localStream) {
+      startRecordingBurst();
     }
 
     return () => {
@@ -260,9 +311,13 @@ export default function App() {
       if (videoIntervalId) {
         clearInterval(videoIntervalId);
       }
-      if (audioRecorder && audioRecorder.state !== "inactive") {
+      audioLoopActive = false;
+      if (pendingTimeoutId) {
+        clearTimeout(pendingTimeoutId);
+      }
+      if (currentRecorder && currentRecorder.state !== "inactive") {
         try {
-          audioRecorder.stop();
+          currentRecorder.stop();
         } catch (stopErr) {
           // ignore
         }
@@ -501,6 +556,56 @@ export default function App() {
     processSequentialQueue();
   };
 
+  // Process sequentially queued base64 voice slices to eliminate playback overlapping stutter
+  const playNextAudioQueueChunk = () => {
+    const pc = pcRef.current;
+    const isWebRTCActive = pc && (
+      pc.connectionState === "connected" || 
+      pc.iceConnectionState === "connected" || 
+      pc.connectionState === "completed" || 
+      pc.iceConnectionState === "completed"
+    );
+    if (isWebRTCActive) {
+      // Clear queue if stable direct WebRTC has taken over
+      audioQueueRef.current = [];
+      isPlayingAudioQueueRef.current = false;
+      return;
+    }
+
+    if (audioQueueRef.current.length === 0) {
+      isPlayingAudioQueueRef.current = false;
+      return;
+    }
+
+    isPlayingAudioQueueRef.current = true;
+    const nextChunk = audioQueueRef.current.shift();
+    if (!nextChunk) {
+      playNextAudioQueueChunk();
+      return;
+    }
+
+    try {
+      const audio = new Audio(nextChunk);
+      audio.volume = 1.0;
+      audio.onended = () => {
+        playNextAudioQueueChunk();
+      };
+      audio.onerror = () => {
+        console.warn("[AudioRelay] Failed playing audio chunk from queue, skipping...");
+        playNextAudioQueueChunk();
+      };
+      audio.play().catch((err) => {
+        console.log("[AudioRelay] Playback deferred:", err.message);
+        // If playback was deferred (e.g. user gesture block), retry in next cycle or skip
+        // to prevent blocking the queue.
+        setTimeout(playNextAudioQueueChunk, 800);
+      });
+    } catch (err) {
+      console.error("[AudioRelay] Audio creation error in queue:", err);
+      playNextAudioQueueChunk();
+    }
+  };
+
   // Lazy instantiate socket.io client
   const initSocketConnection = () => {
     if (socketRef.current) return;
@@ -575,8 +680,7 @@ export default function App() {
           setRemoteVideoFrame(signal.mediaFrame);
         }
       } else if (signal && signal.mediaAudioChunk) {
-        // Only play fallback audio chunks if standard WebRTC P2P is not yet active
-        // This avoids concurrent audio playbacks, stutter, and echo with WebRTC's natural sound system
+        // Enqueue fallback audio chunks sequentially if standard WebRTC status is not yet active
         const pc = pcRef.current;
         const isWebRTCActive = pc && (
           pc.connectionState === "connected" || 
@@ -585,15 +689,9 @@ export default function App() {
           pc.iceConnectionState === "completed"
         );
         if (!isWebRTCActive) {
-          try {
-            const audio = new Audio(signal.mediaAudioChunk);
-            audio.volume = 1.0;
-            audio.play().catch((err) => {
-              // Ignore minor benign playback alerts
-              console.log("[AudioRelay] Direct play deferred:", err.message);
-            });
-          } catch (audioErr) {
-            console.warn("[AudioRelay] Audio element builder failed:", audioErr);
+          audioQueueRef.current.push(signal.mediaAudioChunk);
+          if (!isPlayingAudioQueueRef.current) {
+            playNextAudioQueueChunk();
           }
         }
       } else {
