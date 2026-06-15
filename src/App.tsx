@@ -656,9 +656,9 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 24, max: 30 },
           facingMode: "user"
         },
         audio: {
@@ -814,8 +814,8 @@ export default function App() {
 
   // SDP bandwidth/bitrate modifier to lock in crystal-clear high-definition video and robust stereo audio
   const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 2500; // 2.5 Mbps is beautiful for clear 1080p/720p stream without packet choke
-    const audioBitrateKbps = 128;  // 128 Kbps is stellar stereo sound
+    const videoBitrateKbps = 1500; // 1.5 Mbps is outstanding for smooth 720p HD stream and prevents packet choke on constrained relays
+    const audioBitrateKbps = 64;   // 64 Kbps is excellent HD stereo sound representation for crystal clear voice calls
 
     let lines = sdp.split("\r\n");
     let modifiedLines: string[] = [];
@@ -858,8 +858,8 @@ export default function App() {
 
       // Overwrite Opus media format parameters to unlock maximum quality
       if (isAudioSection && opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) {
-        // Boost Opus config safely without breaking the SDP parse engines
-        line = `a=fmtp:${opusPayloadType} useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=${audioBitrateKbps * 1000}`;
+        // Boost Opus config safely with inband FEC (Forward Error Correction) and robust bitrates
+        line = `a=fmtp:${opusPayloadType} useinbandfec=1;stereo=1;sprop-stereo=1;usedtx=1;maxaveragebitrate=${audioBitrateKbps * 1000}`;
       }
 
       modifiedLines.push(line);
