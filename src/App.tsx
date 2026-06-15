@@ -211,7 +211,7 @@ export default function App() {
       }, 180); // optimized slide-stream rate (~5.5 fps) to save considerable bandwidth when fallback is active
     }
 
-    // 2. Audio chunks capturing/encoding (running in independent 1.1s burst recorder loops)
+    // 2. Audio chunks capturing/encoding (running in independent 350ms low-latency burst recorder loops)
     let audioLoopActive = true;
     let pendingTimeoutId: any = null;
     let currentRecorder: MediaRecorder | null = null;
@@ -277,13 +277,13 @@ export default function App() {
 
           // Trigger next slice if active
           if (audioLoopActive) {
-            pendingTimeoutId = setTimeout(startRecordingBurst, 40);
+            pendingTimeoutId = setTimeout(startRecordingBurst, 10);
           }
         };
 
         recorder.start();
 
-        // Let the burst record for exactly 1.1 seconds to get beautiful, solid, continuous HD audio chunks with headers
+        // Let the burst record for exactly 350ms to get beautiful, low-latency independent audio chunks with perfect headers
         pendingTimeoutId = setTimeout(() => {
           if (recorder.state !== "inactive") {
             try {
@@ -292,7 +292,7 @@ export default function App() {
               // ignore
             }
           }
-        }, 1100);
+        }, 350);
 
       } catch (recorderErr) {
         console.error("[MediaRelay] Blocked audio recording slice:", recorderErr);
@@ -570,6 +570,13 @@ export default function App() {
       audioQueueRef.current = [];
       isPlayingAudioQueueRef.current = false;
       return;
+    }
+
+    // Dynamic backlog pruning: if more than 2 chunks build up, keep only the latest 1
+    // to instantly drop stale buffer delay and sync in true real-time.
+    if (audioQueueRef.current.length > 2) {
+      console.log(`[AudioRelay] Low latency sync: dropping ${audioQueueRef.current.length - 1} stale chunk(s) to restore lowest lag.`);
+      audioQueueRef.current = audioQueueRef.current.slice(-1);
     }
 
     if (audioQueueRef.current.length === 0) {
