@@ -810,9 +810,9 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 360 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 480, max: 640 },
+          height: { ideal: 270, max: 360 },
+          frameRate: { ideal: 15, max: 20 },
           facingMode: "user"
         },
         audio: {
@@ -832,9 +832,9 @@ export default function App() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 640 },
-            height: { ideal: 360 },
-            frameRate: { ideal: 24, max: 30 }
+            width: { ideal: 480, max: 640 },
+            height: { ideal: 270, max: 360 },
+            frameRate: { ideal: 15, max: 20 }
           },
           audio: {
             echoCancellation: true,
@@ -854,9 +854,9 @@ export default function App() {
           // Fallback 1: Video-only if microphone is blocked or missing
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              width: { ideal: 640 },
-              height: { ideal: 360 },
-              frameRate: { ideal: 24, max: 30 }
+              width: { ideal: 480, max: 640 },
+              height: { ideal: 270, max: 360 },
+              frameRate: { ideal: 15, max: 20 }
             },
             audio: false
           });
@@ -968,8 +968,8 @@ export default function App() {
 
   // SDP bandwidth/bitrate modifier to lock in fluid low-latency video and noise-cancelled mono voice
   const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 800; // 800 Kbps prevents bufferbloat/jitter queueing and keeps voice perfectly in sync
-    const audioBitrateKbps = 32;   // 32 Kbps is optimized mono average bitrate for minimum buffer delay and perfect hardware echo cancellation
+    const videoBitrateKbps = 350; // 350 Kbps prevents bufferbloat/jitter queueing and keeps voice perfectly in sync at lower resolution
+    const audioBitrateKbps = 16;   // 16 Kbps is optimized mono average bitrate for minimum buffer delay and perfect narrow-band audio transfer
 
     let lines = sdp.split("\r\n");
     let modifiedLines: string[] = [];
