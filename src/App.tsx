@@ -82,7 +82,6 @@ export default function App() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const modeRef = useRef<"text" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
@@ -1047,7 +1046,6 @@ export default function App() {
       pcRef.current = null;
     }
     safeSetRemoteStream(null);
-    destroyRemoteAudioElement();
     signalProcessingQueueRef.current = [];
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
@@ -1197,7 +1195,6 @@ export default function App() {
         
         // Wrap tracks from inboundStream cleanly
         const inboundTracks = inboundStream.getTracks();
-        const hasAudio = inboundTracks.some((t) => t.kind === "audio");
         const freshStream = new MediaStream(inboundTracks);
 
         // Ensure we prevent re-assigning the same stream repeatedly if it matches existing remoteStream's tracks exactly
@@ -1213,9 +1210,6 @@ export default function App() {
           console.log("[WEBRTC] Attaching clean remote stream to state.");
           safeSetRemoteStream(freshStream);
           setRemoteStreamVersion((v) => v + 1);
-          if (hasAudio) {
-            playRemoteAudioStream(freshStream);
-          }
         } else {
           console.log("[WEBRTC] remoteStream tracks already match exactly. Skipping duplicate remote stream attachment.");
         }
@@ -1230,9 +1224,6 @@ export default function App() {
           const updatedStream = new MediaStream(updatedTracks);
           safeSetRemoteStream(updatedStream);
           setRemoteStreamVersion((v) => v + 1);
-          if (trackEvent.track.kind === "audio") {
-            playRemoteAudioStream(updatedStream);
-          }
         };
         inboundStream.onremovetrack = () => {
           console.log("[WEBRTC] Dynamic track removed from active stranger stream.");
@@ -1248,9 +1239,6 @@ export default function App() {
           const nextStream = new MediaStream([event.track]);
           safeSetRemoteStream(nextStream);
           setRemoteStreamVersion((v) => v + 1);
-          if (event.track.kind === "audio") {
-            playRemoteAudioStream(nextStream);
-          }
         } else {
           const alreadyHasTrack = prev.getTracks().some((t) => t.id === event.track.id);
           if (!alreadyHasTrack) {
@@ -1258,9 +1246,6 @@ export default function App() {
             const nextStream = new MediaStream(prev.getTracks());
             safeSetRemoteStream(nextStream);
             setRemoteStreamVersion((v) => v + 1);
-            if (event.track.kind === "audio") {
-              playRemoteAudioStream(nextStream);
-            }
           }
         }
       }
@@ -1362,68 +1347,6 @@ export default function App() {
     }
   };
 
-  const destroyRemoteAudioElement = () => {
-    if (remoteAudioElementRef.current) {
-      console.log("[Audio] Destroying previous remote audio element to prevent double-playback echo and delay leakage.");
-      try {
-        remoteAudioElementRef.current.pause();
-        remoteAudioElementRef.current.srcObject = null;
-        remoteAudioElementRef.current.remove();
-      } catch (e) {
-        console.warn("[Audio] Error destroying remote audio element:", e);
-      }
-      remoteAudioElementRef.current = null;
-    }
-  };
-
-  const playRemoteAudioStream = (stream: MediaStream) => {
-    // Destroy any existing remote audio element first to ensure exactly single-play execution
-    destroyRemoteAudioElement();
-
-    const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      console.log("[Audio] No remote audio tracks detected.");
-      return;
-    }
-
-    console.log(`[Audio] Playing remote voice stream: containing ${audioTracks.length} audio tracks.`);
-    const audioOnlyStream = new MediaStream(audioTracks);
-
-    const audioEl = document.createElement("audio");
-    audioEl.id = "webrtc-remote-audio";
-    audioEl.autoplay = true;
-    (audioEl as any).playsInline = true;
-    audioEl.muted = false;
-    audioEl.srcObject = audioOnlyStream;
-    remoteAudioElementRef.current = audioEl;
-    document.body.appendChild(audioEl);
-
-    audioEl.play()
-      .then(() => {
-        console.log("[Audio] WebRTC remote stream audio initiated success.");
-      })
-      .catch((err) => {
-        console.warn("[Audio] Audio playback gesture-blocked. Registering automatic unmute triggers...", err);
-        const resumeAudio = () => {
-          if (remoteAudioElementRef.current === audioEl) {
-            audioEl.play()
-              .then(() => {
-                console.log("[Audio] Unblocked audio stream successfully of stranger via click handshake.");
-                cleanup();
-              })
-              .catch((e) => console.warn("[Audio] Secondary playback activation failed:", e));
-          } else {
-            cleanup();
-          }
-        };
-        const events = ["click", "keydown", "mousedown", "touchstart"];
-        const cleanup = () => {
-          events.forEach((ev) => document.removeEventListener(ev, resumeAudio));
-        };
-        events.forEach((ev) => document.addEventListener(ev, resumeAudio, { passive: true }));
-      });
-  };
-
   const safeSetRemoteStream = (newStream: MediaStream | null) => {
     remoteStreamRef.current = newStream;
     setRemoteStream((prevStream) => {
@@ -1452,7 +1375,6 @@ export default function App() {
       pcRef.current = null;
     }
     safeSetRemoteStream(null);
-    destroyRemoteAudioElement();
     setRemoteVideoFrame(null);
     partnerIdRef.current = null;
     setPartnerId(null);
@@ -1494,7 +1416,6 @@ export default function App() {
     setStrangerIsTyping(false);
     setCommonInterests([]);
     safeSetRemoteStream(null);
-    destroyRemoteAudioElement();
     setAppState("searching");
 
     trackEvent("join_search", { mode, interests_count: interests.length, interests });

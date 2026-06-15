@@ -98,17 +98,25 @@ export default function VideoPlayer({
   const remoteVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoRef.current = el;
     if (el && remoteStream) {
-      el.muted = true; // FORCE MUTED TO ELIMINATE DUPLICATE AUDIO PLAYBACK PATHS
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref (Muted)");
+        console.log("[VideoPlayer] Binding unified remoteStream to video element via callback ref");
         el.srcObject = remoteStream;
       }
+      
+      // Attempt unmuted play for native hardware echo cancellation routing
+      el.muted = false;
       el.play()
         .then(() => {
+          console.log("[VideoPlayer] Unified unmuted remote playback started successfully via callback ref.");
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Local muted video play failed inside callback ref: ", err);
+          console.warn("[VideoPlayer] Direct unmuted autoplay failed, falling back to muted video playback first:", err);
+          el.muted = true;
+          setAutoplayBlocked(true);
+          el.play().catch((playErr) => {
+            console.error("[VideoPlayer] Muted fallback playback failed too:", playErr);
+          });
         });
     }
   }, [remoteStream]);
@@ -219,22 +227,60 @@ export default function VideoPlayer({
   useEffect(() => {
     const el = remoteVideoRef.current;
     if (el && remoteStream) {
-      el.muted = true; // FORCE MUTED TO ELIMINATE DUPLICATE AUDIO PLAYBACK PATHS
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect (Muted)");
+        console.log("[VideoPlayer] Binding unified remoteStream to video element via useEffect");
         el.srcObject = remoteStream;
       }
+      
+      el.muted = false;
       el.play()
         .then(() => {
+          console.log("[VideoPlayer] Unified unmuted remote playback started successfully via useEffect.");
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Local muted video play failed inside useEffect: ", err);
+          console.warn("[VideoPlayer] Remote unmuted playback blocked in useEffect, falling back to muted video playback:", err);
+          el.muted = true;
+          setAutoplayBlocked(true);
+          el.play().catch((playErr) => {
+            console.error("[VideoPlayer] Muted fallback also failed in useEffect:", playErr);
+          });
         });
     } else {
       setAutoplayBlocked(false);
     }
   }, [remoteStream, remoteStreamVersion, layoutMode, isPaired]);
+
+  // Proactively listen for any document interaction to unmute and play back the stranger's voice seamlessly
+  useEffect(() => {
+    const tryUnmuteAndPlay = () => {
+      const el = remoteVideoRef.current;
+      if (el && remoteStream) {
+        if (el.muted) {
+          console.log("[VideoPlayer] Dynamic user interaction detected: Unmuting stranger stream audio feed...");
+          el.muted = false;
+          el.play()
+            .then(() => {
+              console.log("[VideoPlayer] Successfully unblocked remote voice via user gesture click.");
+              setAutoplayBlocked(false);
+              setUserHasInteracted(true);
+            })
+            .catch((err) => {
+              console.warn("[VideoPlayer] Gesture audio play resume deferred:", err);
+            });
+        } else {
+          el.play().catch(() => {});
+        }
+      }
+    };
+
+    const events = ["click", "keydown", "mousedown", "touchstart"];
+    events.forEach((event) => document.addEventListener(event, tryUnmuteAndPlay, { passive: true }));
+
+    return () => {
+      events.forEach((event) => document.removeEventListener(event, tryUnmuteAndPlay));
+    };
+  }, [remoteStream]);
 
   const getWebrtcStatusLabel = () => {
     if (!webrtcStatus || webrtcStatus === "idle") return "";
@@ -389,7 +435,7 @@ export default function VideoPlayer({
             ref={remoteVideoCallback}
             autoPlay
             playsInline
-            muted={true}
+            muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
         ) : isPaired && remoteVideoFrame ? (
