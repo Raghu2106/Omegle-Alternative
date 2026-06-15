@@ -188,11 +188,11 @@ export default function App() {
 
     console.log("[MediaRelay] WebRTC is negotiating/connecting/failed. Activating custom socket-based media relay fallbacks...");
 
-    // 1. Video Frame capturing (every ~85ms -> ~11 fps, highly fluid yet network-light!)
+    // 1. Video Frame capturing (every ~220ms, highly optimized yet network-light!)
     if (cameraActive && localStream) {
       const offscreenCanvas = document.createElement("canvas");
-      offscreenCanvas.width = 300;
-      offscreenCanvas.height = 220;
+      offscreenCanvas.width = 180;
+      offscreenCanvas.height = 135;
       const ctx = offscreenCanvas.getContext("2d");
 
       videoIntervalId = setInterval(() => {
@@ -200,7 +200,7 @@ export default function App() {
         if (localVideoEl && !localVideoEl.paused && !localVideoEl.ended && ctx) {
           try {
             ctx.drawImage(localVideoEl, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.35); // highly compressed
+            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.25); // ultra highly compressed small JPEG to avoid buffer jams
             socket.emit("webrtc-signal", {
               to: currentPartner,
               signal: { mediaFrame: base64Frame }
@@ -209,7 +209,7 @@ export default function App() {
             console.warn("[MediaRelay] Error rendering local video frame:", e);
           }
         }
-      }, 180); // optimized slide-stream rate (~5.5 fps) to save considerable bandwidth when fallback is active
+      }, 220); // optimized low-band screenshot rate to avoid CPU/websocket jams and keep audio in sync
     }
 
     // 2. Audio chunks capturing/encoding (running in independent 350ms low-latency burst recorder loops)
@@ -808,8 +808,8 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 640 },
+          height: { ideal: 360 },
           frameRate: { ideal: 24, max: 30 },
           facingMode: "user"
         },
@@ -826,13 +826,13 @@ export default function App() {
       resolvedStream = stream;
       return stream;
     } catch (err) {
-      console.warn("High-quality media stream denied, attempting standard video+audio fallback...", err);
+      console.warn("Optimized media stream denied, attempting standard video+audio fallback...", err);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 }
+            width: { ideal: 640 },
+            height: { ideal: 360 },
+            frameRate: { ideal: 24, max: 30 }
           },
           audio: {
             echoCancellation: true,
@@ -852,9 +852,9 @@ export default function App() {
           // Fallback 1: Video-only if microphone is blocked or missing
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 }
+              width: { ideal: 640 },
+              height: { ideal: 360 },
+              frameRate: { ideal: 24, max: 30 }
             },
             audio: false
           });

@@ -76,9 +76,18 @@ export default function VideoPlayer({
     localVideoRef.current = el;
     if (el && localStream) {
       el.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
-      if (el.srcObject !== localStream) {
-        console.log("[VideoPlayer] Binding localStream to video element via callback ref");
-        el.srcObject = localStream;
+      const videoTracks = localStream.getVideoTracks();
+      if (videoTracks.length > 0) {
+        const currentSrcObject = el.srcObject as MediaStream | null;
+        const alreadyBound = currentSrcObject && 
+                             currentSrcObject.getVideoTracks().length > 0 && 
+                             currentSrcObject.getVideoTracks()[0].id === videoTracks[0].id;
+        if (!alreadyBound) {
+          console.log("[VideoPlayer] Binding videoOnlyStream to local video element via callback ref to eliminate feedback loops");
+          el.srcObject = new MediaStream(videoTracks);
+        }
+      } else {
+        el.srcObject = null;
       }
       el.play().catch((err) => {
         console.warn("[VideoPlayer] Local video play failed in callback ref: ", err);
@@ -194,10 +203,23 @@ export default function VideoPlayer({
 
   // Keep references updated
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
-      localVideoRef.current.srcObject = localStream;
-      localVideoRef.current.play().catch((err) => {
+    const el = localVideoRef.current;
+    if (el && localStream) {
+      el.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
+      const videoTracks = localStream.getVideoTracks();
+      if (videoTracks.length > 0) {
+        const currentSrcObject = el.srcObject as MediaStream | null;
+        const alreadyBound = currentSrcObject && 
+                             currentSrcObject.getVideoTracks().length > 0 && 
+                             currentSrcObject.getVideoTracks()[0].id === videoTracks[0].id;
+        if (!alreadyBound) {
+          console.log("[VideoPlayer] Binding videoOnlyStream to local video element via useEffect to eliminate feedback loops");
+          el.srcObject = new MediaStream(videoTracks);
+        }
+      } else {
+        el.srcObject = null;
+      }
+      el.play().catch((err) => {
         console.warn("[VideoPlayer] Local video play failed: ", err);
       });
     }
