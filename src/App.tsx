@@ -5,6 +5,7 @@ import { Message, AppState } from "./types";
 import VideoPlayer from "./components/VideoPlayer";
 import ChatPanel from "./components/ChatPanel";
 import AdContainer from "./components/AdContainer";
+import AdManager from "./components/AdManager";
 import { initGA, trackEvent } from "./utils/analytics";
 import { 
   Users, 
@@ -2120,6 +2121,7 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+      <AdManager />
     </div>
   );
 }
