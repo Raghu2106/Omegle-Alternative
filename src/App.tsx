@@ -6,7 +6,6 @@ import VideoPlayer from "./components/VideoPlayer";
 import ChatPanel from "./components/ChatPanel";
 import AdContainer from "./components/AdContainer";
 import AdManager from "./components/AdManager";
-import WebrtcDiagnostics from "./components/WebrtcDiagnostics";
 import { initGA, trackEvent } from "./utils/analytics";
 import { 
   Users, 
@@ -1185,25 +1184,6 @@ export default function App() {
       console.warn("[WebRTC] No dedicated VITE_TURN_URL configured. Falling back to public metered.ca open relay credentials.");
     }
 
-    // High-availability inject custom user Coturn credentials directly from settings localStorage
-    const savedCustomIce = localStorage.getItem("umegle_custom_ice_config");
-    if (savedCustomIce) {
-      try {
-        const parsed = JSON.parse(savedCustomIce);
-        if (parsed.url) {
-          console.log("[WebRTC] Overriding with custom client self-hosted Coturn configuration:", parsed.url);
-          const userSvr: RTCIceServer = {
-            urls: parsed.url,
-          };
-          if (parsed.username) userSvr.username = parsed.username;
-          if (parsed.credential) userSvr.credential = parsed.credential;
-          customIceServers.unshift(userSvr);
-        }
-      } catch (e) {
-        console.error("[WebRTC] Failed to inject custom ICE config", e);
-      }
-    }
-
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
       iceTransportPolicy: "all"
@@ -1771,7 +1751,6 @@ export default function App() {
 
         {/* Global engagement & back action triggers */}
         <div className="flex items-center gap-3 shrink-0">
-          <WebrtcDiagnostics webrtcStatus={webrtcStatus} />
           <div className="flex items-center gap-2 bg-[#f4f7f6] border border-slate-200/50 px-3.5 py-1.5 rounded-full shadow-xs">
             <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
             <span className="text-xs font-mono font-semibold text-slate-700">
