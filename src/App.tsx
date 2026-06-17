@@ -911,9 +911,8 @@ export default function App() {
     try {
       const constraints: MediaStreamConstraints = wantsVideo ? {
         video: {
-          width: { ideal: 480, max: 640 },
-          height: { ideal: 270, max: 360 },
-          frameRate: { ideal: 15, max: 20 },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
           facingMode: "user"
         },
         audio: {
@@ -941,11 +940,7 @@ export default function App() {
       console.warn("Optimized media stream denied, attempting standard video+audio fallback...", err);
       try {
         const constraintsFallback: MediaStreamConstraints = wantsVideo ? {
-          video: {
-            width: { ideal: 480, max: 640 },
-            height: { ideal: 270, max: 360 },
-            frameRate: { ideal: 15, max: 20 }
-          },
+          video: true,
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -971,13 +966,9 @@ export default function App() {
         console.warn("Standard fallback failed, attempting video-only/voice fallbacks...", err15);
         try {
           if (wantsVideo) {
-            // Fallback 1: Video-only if microphone is blocked or missing
+            // Fallback 1: Video-only if microphone is blocked or missing (extremely loose constraint for absolute compatibility)
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                width: { ideal: 480, max: 640 },
-                height: { ideal: 270, max: 360 },
-                frameRate: { ideal: 15, max: 20 }
-              },
+              video: true,
               audio: false
             });
             localStreamRef.current = stream;
