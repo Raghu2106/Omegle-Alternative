@@ -25,6 +25,70 @@ export default function AdManager() {
   const socialBarTimerRef = useRef<NodeJS.Timeout | null>(null);
   const popunderTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 1. Intercept and reposition floating Social Bar overlays to render under the header in the center
+  useEffect(() => {
+    const repositionInjectedAdNodes = () => {
+      const children = Array.from(document.body.children);
+      children.forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        
+        // Exclude system react roots and dev server panels
+        if (
+          el.id === "root" || 
+          el.id === "ad-manager-status" || 
+          el.tagName === "SCRIPT" || 
+          el.tagName === "STYLE" || 
+          el.id?.includes("vite") ||
+          el.id?.includes("next")
+        ) {
+          return;
+        }
+
+        const computedStyle = window.getComputedStyle(el);
+        const position = computedStyle.position;
+        const zIndex = parseInt(computedStyle.zIndex, 10);
+
+        // Target high z-index overlay banners/notifications injected near the top
+        if ((position === "fixed" || position === "absolute") && (zIndex > 1000 || isNaN(zIndex))) {
+          const isMobile = window.innerWidth < 1024;
+          const headerHeight = isMobile ? 64 : 110;
+
+          // Safe positioning: Center horizontally underneath the header bar
+          el.style.setProperty("top", `${headerHeight + 12}px`, "important");
+          el.style.setProperty("left", "50%", "important");
+          el.style.setProperty("right", "auto", "important");
+          el.style.setProperty("transform", "translateX(-50%)", "important");
+          el.style.setProperty("margin-left", "0px", "important");
+          el.style.setProperty("margin-right", "0px", "important");
+
+          if (!el.dataset.repositioned) {
+            el.dataset.repositioned = "true";
+            console.log(
+              "%c[AdManager] Repositioned floating overlay element away from header controls to pagespace center under nav.",
+              "color: #8b5cf6; font-weight: bold;",
+              el
+            );
+          }
+        }
+      });
+    };
+
+    // Instantiate high performance live observer for immediate interception
+    const observer = new MutationObserver((mutations) => {
+      repositionInjectedAdNodes();
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Fallback interval check for late style bindings
+    const repositionInterval = setInterval(repositionInjectedAdNodes, 1000);
+
+    return () => {
+      observer.disconnect();
+      clearInterval(repositionInterval);
+    };
+  }, []);
+
   useEffect(() => {
     // 1. Session tracking for Pop-Under Ad
     // We check if we already have a session start timestamp in sessionStorage to remain accurate across accidental refreshes.
