@@ -78,6 +78,7 @@ export default function App() {
   const [webrtcStatus, setWebrtcStatus] = useState<string>("idle");
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null);
   const [showSocketFallback, setShowSocketFallback] = useState<boolean>(false);
+  const [rtcEngine, setRtcEngine] = useState<"p2p" | "jitsi">("p2p");
 
   // References
   const socketRef = useRef<Socket | null>(null);
@@ -772,6 +773,10 @@ export default function App() {
           // If WebRTC took over, immediately silence and discard any trailing fallback audio chunks to prevent echo
           stopAndClearFallbackAudio();
         }
+      } else if (signal && (signal.rtcEngine === "p2p" || signal.rtcEngine === "jitsi")) {
+        console.log(`[WebRTC] Peer requested switching RTC engine to: ${signal.rtcEngine}`);
+        setRtcEngine(signal.rtcEngine);
+        addSystemMessage(`Stranger switched video connection mode to ${signal.rtcEngine === "jitsi" ? "High Reliability Relay (SFU)." : "P2P Direct pipe."}`);
       } else {
         enqueueSignal(signal, from);
       }
@@ -1536,6 +1541,23 @@ export default function App() {
     setRemoteStream(newStream);
   };
 
+  const getDeterministicRoomId = () => {
+    if (!socketRef.current?.id || !partnerId) return "";
+    const ids = [socketRef.current.id, partnerId].sort();
+    return `umegle-r-${ids[0]}-${ids[1]}`;
+  };
+
+  const handleToggleRtcEngine = (newEngine: "p2p" | "jitsi") => {
+    setRtcEngine(newEngine);
+    if (socketRef.current && partnerId) {
+      socketRef.current.emit("webrtc-signal", {
+        to: partnerId,
+        signal: { rtcEngine: newEngine }
+      });
+      addSystemMessage(`Switched video connection to ${newEngine === "jitsi" ? "High Reliability Relay (SFU) secure container." : "P2P Direct pipe."}`);
+    }
+  };
+
   const cleanPeerConnection = () => {
     if (pcRef.current) {
       try {
@@ -1555,6 +1577,7 @@ export default function App() {
     pendingRemoteCandidatesRef.current = [];
     setWebrtcStatus("idle");
     stopAndClearFallbackAudio();
+    setRtcEngine("p2p");
   };
 
   // Interest list management
@@ -2080,6 +2103,9 @@ export default function App() {
                       webrtcStatus={webrtcStatus}
                       onRetryWebRTC={handleRetryWebRTC}
                       remoteVideoFrame={remoteVideoFrame}
+                      rtcEngine={rtcEngine}
+                      onToggleRtcEngine={handleToggleRtcEngine}
+                      roomId={getDeterministicRoomId()}
                     />
                   </div>
                 )}

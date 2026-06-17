@@ -16,6 +16,9 @@ interface VideoPlayerProps {
   webrtcStatus?: string;
   onRetryWebRTC?: () => void;
   remoteVideoFrame?: string | null;
+  rtcEngine?: "p2p" | "jitsi";
+  onToggleRtcEngine?: (newEngine: "p2p" | "jitsi") => void;
+  roomId?: string;
 }
 
 export default function VideoPlayer({
@@ -32,6 +35,9 @@ export default function VideoPlayer({
   webrtcStatus,
   onRetryWebRTC,
   remoteVideoFrame = null,
+  rtcEngine = "p2p",
+  onToggleRtcEngine,
+  roomId = "",
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -112,6 +118,10 @@ export default function VideoPlayer({
         });
     }
   }, [remoteStream]);
+
+  const jitsiUrl = roomId 
+    ? `https://meet.jit.si/${roomId}#config.prejoinPageEnabled=false&config.startWithAudioMuted=${!micActive}&config.startWithVideoMuted=${!cameraActive}&interfaceConfig.TOOLBAR_BUTTONS=[]&interfaceConfig.SETTINGS_SECTIONS=[]&config.disableDeepLinking=true&config.hideConferenceTimer=true&config.chromeExtensionBanner.prevent=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.SHOW_POWERED_BY=false&interfaceConfig.GENERATE_ROOMNAMES_ON_WELCOME_PAGE=false`
+    : "";
 
   // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
   useEffect(() => {
@@ -391,6 +401,22 @@ export default function VideoPlayer({
 
         {/* Right Section: Microphone & Connection Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 z-10 shrink-0">
+          {isPaired && (
+            <button
+              type="button"
+              onClick={() => onToggleRtcEngine?.(rtcEngine === "p2p" ? "jitsi" : "p2p")}
+              className={`p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all cursor-pointer font-bold text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 border ${
+                rtcEngine === "jitsi"
+                  ? "bg-gradient-to-r from-violet-600 to-indigo-650 border-violet-400 text-white shadow-md shadow-violet-900/35"
+                  : "bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-300 active:scale-95"
+              }`}
+              title={rtcEngine === "jitsi" ? "Switch back to standard P2P direct" : "Switch to secure server routing (Safe Relay)"}
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${rtcEngine === "jitsi" ? "text-amber-400 animate-pulse" : "text-violet-400"}`} />
+              <span>{rtcEngine === "jitsi" ? "Relay Active" : "Use Relay"}</span>
+            </button>
+          )}
+
           <button
             id="bg-btn-voice-toggle-mic"
             type="button"
@@ -415,7 +441,7 @@ export default function VideoPlayer({
             )}
           </button>
           
-          {onRetryWebRTC && (webrtcStatus === "failed" || webrtcStatus === "disconnected") && (
+          {onRetryWebRTC && (webrtcStatus === "failed" || webrtcStatus === "disconnected") && rtcEngine !== "jitsi" && (
             <button
               type="button"
               onClick={onRetryWebRTC}
@@ -469,6 +495,38 @@ export default function VideoPlayer({
           </a>
         </div>
       )}
+
+      {/* Floating Connection Engine Toggler (Top Left, balancing out Layout Toggler) */}
+      {isPaired && (
+        <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 flex items-center gap-0.5 shadow-xl">
+          <button
+            type="button"
+            onClick={() => onToggleRtcEngine?.("p2p")}
+            className={`flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1 rounded-lg transition-all cursor-pointer ${
+              rtcEngine === "p2p"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+            }`}
+            title="Direct P2P (Lowest Latency)"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span>P2P Direct</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onToggleRtcEngine?.("jitsi")}
+            className={`flex items-center gap-1.5 text-[10px] sm:text-[11px] font-bold px-1.5 py-1 sm:px-2 sm:py-1 rounded-lg transition-all cursor-pointer ${
+              rtcEngine === "jitsi"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+            }`}
+            title="Secure Server Routing (High Reliability)"
+          >
+            <Sparkles className="w-3 text-amber-400 animate-pulse animate-duration-1000" />
+            <span>Relay Mode</span>
+          </button>
+        </div>
+      )}
       
       {/* Floating Layout Selector HUD Tag */}
       <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 flex items-center gap-0.5 shadow-xl">
@@ -518,7 +576,14 @@ export default function VideoPlayer({
         layout
         className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
-        {isPaired && remoteStream ? (
+        {isPaired && rtcEngine === "jitsi" ? (
+          <iframe
+            src={jitsiUrl}
+            allow="camera; microphone; fullscreen; display-capture; autoplay"
+            className="w-full h-full border-none bg-slate-950 rounded-2xl z-20"
+            title="Secure High Reliability Relay Room Feed"
+          />
+        ) : isPaired && remoteStream ? (
           <video
             id="remote-video"
             ref={remoteVideoCallback}
@@ -540,7 +605,7 @@ export default function VideoPlayer({
                 <div className="relative flex items-center justify-center">
                   <span className="absolute inline-flex h-12 w-12 rounded-full bg-sky-400 opacity-20 animate-ping"></span>
                   <div className="relative rounded-full bg-sky-500 p-3 text-white">
-                    <Users className="h-6 w-6 animate-pulse" />
+                     <Users className="h-6 w-6 animate-pulse" />
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -566,8 +631,10 @@ export default function VideoPlayer({
 
         {/* Video Overlay Status Tag */}
         <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30 font-sans">
-          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${getWebrtcStatusColorClass()}`} />
-          Stranger Live{getWebrtcStatusLabel()}
+          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
+            rtcEngine === "jitsi" ? "bg-indigo-400 animate-pulse" : getWebrtcStatusColorClass()
+          }`} />
+          {rtcEngine === "jitsi" ? "Stranger Live (Relay Active)" : `Stranger Live${getWebrtcStatusLabel()}`}
         </div>
       </motion.div>
  
@@ -593,7 +660,7 @@ export default function VideoPlayer({
             : "relative w-full h-full min-h-0 rounded-2xl border border-slate-800"
         }`}
       >
-        {localStream && cameraActive ? (
+        {localStream && cameraActive && rtcEngine !== "jitsi" ? (
           <video
             id="local-video"
             ref={localVideoCallback}
@@ -602,6 +669,13 @@ export default function VideoPlayer({
             muted={true}
             className="w-full h-full bg-slate-950 mirror-mode object-cover"
           />
+        ) : rtcEngine === "jitsi" ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center p-3 bg-indigo-950/20">
+            <Sparkles className={`mx-auto text-indigo-400 animate-pulse ${layoutMode === "pip" ? "h-4 w-4" : "h-6 w-6 mb-1"}`} />
+            <p className={`font-semibold text-indigo-300 text-center uppercase tracking-wider ${layoutMode === "pip" ? "text-[8px]" : "text-[10px]"}`}>
+              Relay Active
+            </p>
+          </div>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center p-3 bg-radial from-slate-900 to-slate-950">
             <CameraOff className={`mx-auto text-slate-500 ${layoutMode === "pip" ? "h-4 w-4" : "h-6 w-6 mb-1"}`} />
