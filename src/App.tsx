@@ -92,6 +92,7 @@ export default function App() {
   const isProcessingQueueRef = useRef<boolean>(false);
   const pendingRemoteCandidatesRef = useRef<any[]>([]);
   const isInitiatorRef = useRef<boolean>(false);
+  const iceServersRef = useRef<RTCIceServer[]>([]);
 
   // Sequenced fallback audio queue references to eliminate playback overlapping stutter
   const audioQueueRef = useRef<string[]>([]);
@@ -100,6 +101,78 @@ export default function App() {
 
   // Sync refs to avoid stale closures in socket events
   const appStateRef = useRef<AppState>(appState);
+
+  useEffect(() => {
+    async function loadGithubIceServers() {
+      const fallbackServers: RTCIceServer[] = [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+        { urls: "stun:stun.ekiga.net" },
+        {
+          urls: "turns:openrelay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:3478?transport=udp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ];
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s fast abort timeout
+
+        const res = await fetch("https://raw.githubusercontent.com/hook007/free-stun-turn-servers/master/turn.txt", { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        const text = await res.text();
+        const lines = text.split("\n");
+        const parsed: RTCIceServer[] = [];
+        
+        parsed.push({ urls: "stun:stun.l.google.com:19302" });
+        parsed.push({ urls: "stun:stun1.l.google.com:19302" });
+        parsed.push({ urls: "stun:stun2.l.google.com:19302" });
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          
+          const parts = trimmed.split("|");
+          if (parts.length >= 3) {
+            parsed.push({
+              urls: parts[0].trim(),
+              username: parts[1].trim(),
+              credential: parts[2].trim()
+            });
+          } else if (trimmed.includes("@")) {
+            const partsAt = trimmed.split("@");
+            if (partsAt.length === 2 && partsAt[0].startsWith("turn:")) {
+              const auth = partsAt[0].substring(5); // remove 'turn:'
+              const authParts = auth.split(":");
+              if (authParts.length === 2) {
+                parsed.push({
+                  urls: `turn:${partsAt[1].trim()}`,
+                  username: authParts[0],
+                  credential: authParts[1]
+                });
+              }
+            }
+          }
+        }
+        console.log("[WebRTC] Loaded", parsed.length - 3, "relay servers from hook007 open-source GitHub registry.");
+        iceServersRef.current = parsed.length > 3 ? parsed : fallbackServers;
+      } catch (err) {
+        console.warn("[WebRTC] Failed to load open-source GitHub turn servers, using high-authority fallback. Error:", err);
+        iceServersRef.current = fallbackServers;
+      }
+    }
+    loadGithubIceServers();
+  }, []);
 
   useEffect(() => {
     appStateRef.current = appState;
@@ -829,10 +902,11 @@ export default function App() {
   };
 
   // Safe request camera/mic feeds
-  const requestLocalStream = async (): Promise<MediaStream | null> => {
+  const requestLocalStream = async (overrideMode?: "text" | "voice" | "video"): Promise<MediaStream | null> => {
     setIsStreamLoading(true);
     let resolvedStream: MediaStream | null = null;
-    const wantsVideo = modeRef.current === "video";
+    const activeMode = overrideMode || modeRef.current;
+    const wantsVideo = activeMode === "video";
 
     try {
       const constraints: MediaStreamConstraints = wantsVideo ? {
@@ -1144,27 +1218,28 @@ export default function App() {
     pendingRemoteCandidatesRef.current = [];
 
     // Configure STUN/TURN servers. Support dynamic production TURN configuration via environment variables
-    const customIceServers: RTCIceServer[] = [
-      // 1. Standard STUN Servers (highly reliable Google infrastructure)
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
+    const customIceServers: RTCIceServer[] = iceServersRef.current.length > 0 
+      ? [...iceServersRef.current]
+      : [
+          // 1. Standard STUN Servers (highly reliable Google infrastructure)
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun2.l.google.com:19302" },
 
-      // 2. High-performance Secure TURN (turns) on port 443 over TCP.
-      // Acts as fall-back standard HTTPS, guaranteeing cellular/corporate firewall bypass.
-      {
-        urls: "turns:openrelay.metered.ca:443?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      },
+          // 2. High-performance Secure TURN (turns) on port 443 over TCP.
+          {
+            urls: "turns:openrelay.metered.ca:443?transport=tcp",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          },
 
-      // 3. Fallback TURN (turn) on standard WebRTC UDP port 3478
-      {
-        urls: "turn:openrelay.metered.ca:3478?transport=udp",
-        username: "openrelayproject",
-        credential: "openrelayproject"
-      }
-    ];
+          // 3. Fallback TURN (turn) on standard WebRTC UDP port 3478
+          {
+            urls: "turn:openrelay.metered.ca:3478?transport=udp",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          }
+        ];
 
     const envTurnUrl = (import.meta as any).env.VITE_TURN_URL;
     const envTurnUser = (import.meta as any).env.VITE_TURN_USERNAME;
@@ -1180,8 +1255,6 @@ export default function App() {
       
       // Place at the very top of iceServers array to prioritize it
       customIceServers.unshift(customSvr);
-    } else {
-      console.warn("[WebRTC] No dedicated VITE_TURN_URL configured. Falling back to public metered.ca open relay credentials.");
     }
 
     const pc = new RTCPeerConnection({
@@ -1583,7 +1656,12 @@ export default function App() {
   };
 
   // Start search sequence
-  const handleStartMatching = async () => {
+  const handleStartMatching = async (overrideMode?: "text" | "voice" | "video") => {
+    const activeMode = overrideMode || mode;
+    if (overrideMode) {
+      setMode(overrideMode);
+    }
+    
     setMessages([]);
     setStrangerIsTyping(false);
     setCommonInterests([]);
@@ -1591,24 +1669,24 @@ export default function App() {
     destroyRemoteAudioElement();
     setAppState("searching");
 
-    trackEvent("join_search", { mode, interests_count: interests.length, interests });
+    trackEvent("join_search", { mode: activeMode, interests_count: 0, interests: [] });
 
     addSystemMessage("Routing to connection pool...");
 
     // Lazy media setup ahead of routing to maintain flow
-    if (mode === "video" || mode === "voice") {
-      addSystemMessage(mode === "video" ? "Booting camera interface..." : "Booting microphone interface...");
-      await requestLocalStream();
+    if (activeMode === "video" || activeMode === "voice") {
+      addSystemMessage(activeMode === "video" ? "Booting camera interface..." : "Booting microphone interface...");
+      await requestLocalStream(activeMode);
     }
 
     // Ping matching handshake to Express Socket.io server
     initSocketConnection();
     socketRef.current?.emit("start-search", {
-      interests,
-      mode
+      interests: [],
+      mode: activeMode
     });
 
-    addSystemMessage("Searching for matching stranger based on interests...");
+    addSystemMessage("Searching for matching stranger...");
   };
 
   // Pause matching (cancel current search and remain in idle chat lobby)
@@ -1830,148 +1908,75 @@ export default function App() {
                   </div>
 
                   {/* Right Column: Interaction Parameter Box */}
-                  <div className="lg:col-span-7 bg-white/90 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-xl shadow-slate-100/40 space-y-4 sm:space-y-5">
-                    {/* Part 1: Shared Interests (Optional) */}
-                    <div className="space-y-2">
-                      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
-                        <label className="text-xs font-bold text-slate-700 uppercase tracking-widest block header-align">Shared Interests</label>
-                        <p className="text-[10px] text-slate-400">Press <kbd className="font-semibold bg-slate-50 px-1 py-0.5 rounded border border-slate-200">Enter</kbd> or use comma separators</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5 min-h-[40px] p-2 bg-slate-50 rounded-xl border border-slate-200/60 focus-within:ring-2 focus-within:ring-indigo-600/20 focus-within:border-indigo-600 transition-all">
-                        {interests.map((tag) => (
-                          <span key={tag} className="inline-flex items-center gap-1 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white pl-2.5 pr-1 py-0.5 rounded-lg text-xs font-semibold shadow-2xs">
-                            {tag}
-                            <button onClick={() => removeInterest(tag)} className="p-0.5 text-indigo-300 hover:text-white hover:bg-indigo-500 rounded-md transition-colors">
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))}
-                        <input
-                          id="input-interests-tag"
-                          type="text"
-                          placeholder={interests.length ? "Add more..." : "e.g., music, coding, gaming..."}
-                          value={interestInput}
-                          onChange={(e) => setInterestInput(e.target.value)}
-                          onKeyDown={handleInterestKeyDown}
-                          className="flex-1 bg-transparent border-0 outline-hidden min-w-[120px] text-xs font-medium text-slate-800"
-                        />
-                      </div>
+                  <div className="lg:col-span-7 bg-white/90 backdrop-blur-md rounded-2xl p-6 sm:p-8 border border-slate-200/80 shadow-xl shadow-slate-100/40 flex flex-col justify-center space-y-6">
+                    <div className="space-y-1.5 text-center sm:text-left">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Instant Pairing</span>
+                      <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">Select Mode & Start Pairing</h3>
+                      <p className="text-xs text-slate-500 leading-normal">
+                        Choose a mode below to immediately scan the active channel and pair with a live stranger.
+                      </p>
                     </div>
 
-                    {/* Part 2: Choose Matching Mode */}
-                    <div className="border-t border-slate-100 pt-4 space-y-3">
-                      <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block text-center sm:text-left">Choose Matching Mode</span>
-                      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    {/* Part 1: Choose Matching Mode (Now triggers handleStartMatching immediately!) */}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {/* Option 1: Text */}
                         <div 
                           id="mode-option-text"
-                          onClick={() => setMode("text")}
-                          className={`group p-2.5 sm:p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
-                            mode === "text" 
-                              ? "border-indigo-500 bg-indigo-50/35 shadow-md shadow-indigo-100/40 scale-[1.02]"
-                              : "border-slate-100 hover:border-indigo-400/30 hover:shadow-2xs bg-slate-50/20 hover:bg-white"
-                          }`}
+                          onClick={() => handleStartMatching("text")}
+                          className="group p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-500 bg-slate-50/40 hover:bg-indigo-50/15 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none shadow-2xs hover:shadow-md hover:scale-[1.03]"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
-                            mode === "text" 
-                              ? "bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-500/30" 
-                              : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
-                          }`}>
-                            <MessageSquare className="w-3.5 h-3.5" />
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mb-2 transition-all duration-300 bg-slate-100 border border-slate-200 text-slate-600 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-indigo-500/35">
+                            <MessageSquare className="w-4 h-4" />
                           </div>
                           <div className="space-y-0.5">
-                            <h4 className="text-[9px] sm:text-[10px] font-bold text-slate-800 uppercase tracking-wider">Text Only</h4>
-                            <p className="hidden sm:block text-[9px] text-slate-500 leading-normal">Fast, anonymous chat.</p>
+                            <h4 className="text-[11px] font-bold text-slate-850 uppercase tracking-wider group-hover:text-indigo-600">Text Only</h4>
+                            <p className="text-[10px] text-slate-500 leading-normal">Instant, highly secure text chat.</p>
                           </div>
                         </div>
 
                         {/* Option 2: Voice */}
                         <div 
                           id="mode-option-voice"
-                          onClick={() => setMode("voice")}
-                          className={`group p-2.5 sm:p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
-                            mode === "voice" 
-                              ? "border-indigo-500 bg-indigo-50/35 shadow-md shadow-indigo-100/40 scale-[1.02]"
-                              : "border-slate-100 hover:border-indigo-400/30 hover:shadow-2xs bg-slate-50/20 hover:bg-white"
-                          }`}
+                          onClick={() => handleStartMatching("voice")}
+                          className="group p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-500 bg-slate-50/40 hover:bg-indigo-50/15 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none shadow-2xs hover:shadow-md hover:scale-[1.03]"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
-                            mode === "voice" 
-                              ? "bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-500/30" 
-                              : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
-                          }`}>
-                            <Volume2 className="w-3.5 h-3.5" />
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mb-2 transition-all duration-300 bg-slate-100 border border-slate-200 text-slate-600 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-indigo-500/35">
+                            <Volume2 className="w-4 h-4" />
                           </div>
                           <div className="space-y-0.5">
-                            <h4 className="text-[9px] sm:text-[10px] font-bold text-slate-800 uppercase tracking-wider">Voice & Text</h4>
-                            <p className="hidden sm:block text-[9px] text-slate-500 leading-normal">Voice audio streams.</p>
+                            <h4 className="text-[11px] font-bold text-slate-850 uppercase tracking-wider group-hover:text-indigo-600">Voice Chat</h4>
+                            <p className="text-[10px] text-slate-500 leading-normal">Connect via crystal clear voice stream.</p>
                           </div>
                         </div>
 
                         {/* Option 3: Video */}
                         <div 
                           id="mode-option-video"
-                          onClick={() => setMode("video")}
-                          className={`group p-2.5 sm:p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none h-full relative ${
-                            mode === "video" 
-                              ? "border-indigo-500 bg-indigo-50/35 shadow-md shadow-indigo-100/40 scale-[1.02]"
-                              : "border-slate-100 hover:border-indigo-400/30 hover:shadow-2xs bg-slate-50/20 hover:bg-white"
-                          }`}
+                          onClick={() => handleStartMatching("video")}
+                          className="group p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-500 bg-slate-50/40 hover:bg-indigo-50/15 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none shadow-2xs hover:shadow-md hover:scale-[1.03]"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mb-1 transition-all duration-300 ${
-                            mode === "video" 
-                              ? "bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-md shadow-indigo-500/30" 
-                              : "bg-slate-50 border border-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:border-indigo-100 group-hover:text-indigo-600"
-                          }`}>
-                            <Video className="w-3.5 h-3.5" />
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mb-2 transition-all duration-300 bg-slate-100 border border-slate-200 text-slate-600 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-indigo-500/35">
+                            <Video className="w-4 h-4" />
                           </div>
                           <div className="space-y-0.5">
-                            <h4 className="text-[9px] sm:text-[10px] font-bold text-slate-800 uppercase tracking-wider">Webcam</h4>
-                            <p className="hidden sm:block text-[9px] text-slate-500 leading-normal">Dynamic video feeds.</p>
+                            <h4 className="text-[11px] font-bold text-slate-850 uppercase tracking-wider group-hover:text-indigo-600">Webcam</h4>
+                            <p className="text-[10px] text-slate-500 leading-normal">Full peer-to-peer web camera streams.</p>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Terms & Privacy Agreement checkbox required for onboarding */}
-                    <div id="terms-agreement-row" className="p-3 rounded-xl bg-slate-50 border border-slate-200/60 space-y-2.5 shadow-3xs select-none text-left">
-                      <div className="flex items-start gap-2.5">
-                        <input
-                          id="checkbox-terms"
-                          type="checkbox"
-                          checked={agreedToTerms}
-                          onChange={(e) => setAgreedToTerms(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
-                        />
-                        <label htmlFor="checkbox-terms" className="text-xs text-slate-600 leading-normal font-semibold cursor-pointer">
-                          I confirm that I am 18+ and agree to the{" "}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowTermsDetail(!showTermsDetail);
-                              setShowPrivacyDetail(false);
-                            }}
-                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
-                          >
-                            Terms of Use
-                          </button>
-                          {" "}and{" "}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowPrivacyDetail(!showPrivacyDetail);
-                              setShowTermsDetail(false);
-                            }}
-                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
-                          >
-                            Privacy Policy
-                          </button>
-                          .
-                        </label>
+                    {/* Highly descriptive and regulatory compliant terms reminder (no active checkboxes required) */}
+                    <div className="p-3.5 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[10px] sm:text-[11px] text-slate-500 leading-relaxed space-y-2 text-center select-none">
+                      <div className="flex justify-center items-center gap-1.5 font-bold text-slate-705">
+                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                        <span>By matching, you agree to comply with our standards.</span>
                       </div>
-
-                      {/* Expandable Info Cards */}
+                      <p>
+                        You confirm you are 18+ and adhere to the <span className="text-indigo-650 hover:underline font-bold cursor-pointer" onClick={() => setShowTermsDetail(!showTermsDetail)}>Terms of Use</span> and <span className="text-indigo-650 hover:underline font-bold cursor-pointer" onClick={() => setShowPrivacyDetail(!showPrivacyDetail)}>Privacy Policy</span>. No explicit content or misconduct is tolerated.
+                      </p>
+                      
                       <AnimatePresence mode="wait">
                         {showTermsDetail && (
                           <motion.div
@@ -1979,12 +1984,12 @@ export default function App() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="text-[11px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 shadow-2xs overflow-hidden"
+                            className="text-[10px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-2 text-left space-y-1 shadow-2xs overflow-hidden"
                           >
-                            <div className="font-bold text-slate-800">Terms of Use Highlights:</div>
-                            <ul className="list-disc list-inside space-y-1 pl-1">
-                              <li>You must be at least 18 years old to join or use this chat applet.</li>
-                              <li>No sexually explicit content, harassment, or offensive behaviors.</li>
+                            <div className="font-bold text-slate-800">Terms of Use:</div>
+                            <ul className="list-disc list-inside space-y-0.5 pl-1">
+                              <li>Minimum 18 years age requirement.</li>
+                              <li>Sexually explicit, toxic, or offensive behaviors are banned.</li>
                               <li>Protect your identity; avoid sharing contact details.</li>
                             </ul>
                           </motion.div>
@@ -1996,33 +2001,18 @@ export default function App() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="text-[11px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 shadow-2xs overflow-hidden"
+                            className="text-[10px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-2 text-left space-y-1 shadow-2xs overflow-hidden"
                           >
-                            <div className="font-bold text-slate-800">Privacy Policy Highlights:</div>
-                            <ul className="list-disc list-inside space-y-1 pl-1">
-                              <li>Connections utilize highly secure peer-to-peer (P2P) signaling pathways.</li>
-                              <li>Text messages are volatilized and immediately deleted upon lobby exit.</li>
-                              <li>We do not record, document, log, store, or sell any content streams.</li>
+                            <div className="font-bold text-slate-800">Privacy Policy:</div>
+                            <ul className="list-disc list-inside space-y-0.5 pl-1">
+                              <li>Streams utilize encrypted peer-to-peer tunnels.</li>
+                              <li>Messages are deleted immediately upon lobby exit.</li>
+                              <li>We do not record, store, or sell content streams.</li>
                             </ul>
                           </motion.div>
                         )}
                       </AnimatePresence>
                     </div>
-
-                    {/* Matching start trigger button */}
-                    <button
-                      id="btn-start-matching"
-                      onClick={handleStartMatching}
-                      disabled={!agreedToTerms}
-                      className={`w-full h-12 sm:h-13 font-extrabold tracking-wide uppercase rounded-xl transition-all flex items-center justify-center gap-2 border ${
-                        agreedToTerms
-                          ? "bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-700 text-white border-transparent hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.005] active:scale-[0.985] cursor-pointer"
-                          : "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                      } duration-200`}
-                    >
-                      <span>Start Chatting</span>
-                      <Sparkles className={`w-4 h-4 ${agreedToTerms ? "text-sky-300" : "text-slate-400"}`} />
-                    </button>
                   </div>
 
                 </div>
