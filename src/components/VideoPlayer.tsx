@@ -12,7 +12,7 @@ interface VideoPlayerProps {
   micActive: boolean;
   onToggleCamera: () => void;
   onToggleMic: () => void;
-  mode: "text" | "voice" | "video";
+  mode: "text" | "video";
   webrtcStatus?: string;
   onRetryWebRTC?: () => void;
   remoteVideoFrame?: string | null;
@@ -35,7 +35,6 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
@@ -47,6 +46,7 @@ export default function VideoPlayer({
   });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVirtualFullscreen, setIsVirtualFullscreen] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [userHasInteracted, setUserHasInteracted] = useState(false);
   const [showLocalControls, setShowLocalControls] = useState(false);
   const [isInsideIframe, setIsInsideIframe] = useState(false);
@@ -72,12 +72,24 @@ export default function VideoPlayer({
     }
   }, []);
 
+  const handleRecoverAutoplay = () => {
+    setUserHasInteracted(true);
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.play()
+        .then(() => {
+          setAutoplayBlocked(false);
+        })
+        .catch((err) => {
+          console.error("Direct play recovery failed:", err);
+        });
+    }
+  };
+
   const localVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     localVideoRef.current = el;
     if (el && localStream) {
-      el.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
       if (el.srcObject !== localStream) {
-        console.log("[VideoPlayer] Binding localStream to local video element via callback ref");
+        console.log("[VideoPlayer] Binding localStream to video element via callback ref");
         el.srcObject = localStream;
       }
       el.play().catch((err) => {
@@ -89,30 +101,28 @@ export default function VideoPlayer({
   const remoteVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoRef.current = el;
     if (el && remoteStream) {
-      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH VIDEO
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref (Unmuted)");
+        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref");
         el.srcObject = remoteStream;
       }
-      el.play().catch((err) => {
-        console.warn("[VideoPlayer] Remote video play failed inside callback ref: ", err);
-      });
+      el.play()
+        .then(() => {
+          setAutoplayBlocked((blocked) => {
+            if (blocked) return false;
+            return blocked;
+          });
+        })
+        .catch((err) => {
+          console.warn("[VideoPlayer] Play call failed inside callback ref:", err);
+          if (!userHasInteracted) {
+            setAutoplayBlocked((blocked) => {
+              if (!blocked) return true;
+              return blocked;
+            });
+          }
+        });
     }
-  }, [remoteStream]);
-
-  const remoteAudioCallback = useCallback((el: HTMLAudioElement | null) => {
-    remoteAudioRef.current = el;
-    if (el && remoteStream) {
-      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH AUDIO
-      if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to voice-mode audio element via callback ref (Unmuted)");
-        el.srcObject = remoteStream;
-      }
-      el.play().catch((err) => {
-        console.warn("[VideoPlayer] Remote audio play failed inside callback ref: ", err);
-      });
-    }
-  }, [remoteStream]);
+  }, [remoteStream, userHasInteracted]);
 
   // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
   useEffect(() => {
@@ -195,74 +205,58 @@ export default function VideoPlayer({
 
   // Keep references updated
   useEffect(() => {
-    const el = localVideoRef.current;
-    if (el && localStream) {
-      el.muted = true; // FORCE MUTED TO PREVENT ACOUSTIC FEEDBACK ECHO
-      if (el.srcObject !== localStream) {
-        console.log("[VideoPlayer] Binding localStream to local video element via useEffect");
-        el.srcObject = localStream;
-      }
-      el.play().catch((err) => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch((err) => {
         console.warn("[VideoPlayer] Local video play failed: ", err);
       });
     }
   }, [localStream, layoutMode, cameraActive]);
 
   useEffect(() => {
-    const el = remoteVideoRef.current;
-    if (el && remoteStream) {
-      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH VIDEO
-      console.log("[VideoPlayer] Explicitly binding/refreshing remoteStream on version update:", remoteStreamVersion);
-      el.srcObject = remoteStream;
-      el.play().catch((err) => {
-        console.warn("[VideoPlayer] Remote video play failed inside useEffect: ", err);
-      });
-    }
-  }, [remoteStream, remoteStreamVersion, layoutMode, isPaired]);
-
-  useEffect(() => {
-    if (mode !== "voice") return;
-    const el = remoteAudioRef.current;
-    if (el && remoteStream) {
-      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH AUDIO
-      if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to audio element via useEffect (Unmuted)");
-        el.srcObject = remoteStream;
-      }
-      el.play()
+    if (remoteVideoRef.current && remoteStream) {
+      // Re-assign srcObject to guarantee browser re-evaluates all tracks (audio/video) when added dynamically on Unified Plan
+      remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play()
         .then(() => {
-          console.log("[VoiceMode] Audio element play through useEffect succeeded");
+          setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VoiceMode] Audio play through useEffect failed:", err);
+          console.warn("[VideoPlayer] Autoplay was blocked/halted by browser:", err);
+          if (!userHasInteracted) {
+            setAutoplayBlocked(true);
+          }
         });
+    } else {
+      setAutoplayBlocked(false);
     }
-  }, [remoteStream, remoteStreamVersion, isPaired, mode]);
+  }, [remoteStream, remoteStreamVersion, layoutMode, isPaired, userHasInteracted]);
 
-  const getWebrtcStatusLabel = () => {
-    if (!webrtcStatus || webrtcStatus === "idle") return "";
-    if (webrtcStatus === "connected" || webrtcStatus === "completed") {
-      return " (connected)";
-    }
-    if (webrtcStatus === "checking" || webrtcStatus === "connecting") {
-      return " (connecting...)";
-    }
-    if (webrtcStatus === "failed" || webrtcStatus === "disconnected" || webrtcStatus === "closed") {
-      // Seamless custom socket relay fallback is running
-      return " (connected)";
-    }
-    return " (connected)";
-  };
+  // Proactively listen for any document interaction to recover from autoplay blockages
+  useEffect(() => {
+    if (!autoplayBlocked || !remoteStream) return;
 
-  const getWebrtcStatusColorClass = () => {
-    if (webrtcStatus === "connected" || webrtcStatus === "completed" || webrtcStatus === "failed" || webrtcStatus === "disconnected" || webrtcStatus === "closed") {
-      return "bg-emerald-500 animate-pulse";
-    }
-    if (webrtcStatus === "checking" || webrtcStatus === "connecting") {
-      return "bg-sky-500 animate-pulse";
-    }
-    return "bg-amber-500 animate-pulse";
-  };
+    const tryPlay = () => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.play()
+          .then(() => {
+            console.log("[VideoPlayer] Autoplay successfully recovered via user interaction.");
+            setAutoplayBlocked(false);
+            setUserHasInteracted(true);
+          })
+          .catch((err) => {
+            console.warn("[VideoPlayer] User interaction play recovery attempt failed:", err);
+          });
+      }
+    };
+
+    const events = ["click", "keydown", "mousedown", "touchstart"];
+    events.forEach((event) => document.addEventListener(event, tryPlay, { passive: true }));
+
+    return () => {
+      events.forEach((event) => document.removeEventListener(event, tryPlay));
+    };
+  }, [autoplayBlocked, remoteStream]);
 
   if (mode === "text") {
     return (
@@ -297,152 +291,6 @@ export default function VideoPlayer({
     );
   }
 
-  if (mode === "voice") {
-    return (
-      <div className="flex flex-row items-center justify-between h-full w-full bg-gradient-to-r from-violet-950 via-slate-900 to-indigo-950 px-3 sm:px-6 py-2 text-center border-b border-violet-900/40 select-none overflow-hidden relative">
-        {/* Subtle decorative glow */}
-        <div className="absolute -left-10 top-1/2 -translate-y-1/2 w-48 h-48 bg-violet-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -right-10 top-1/2 -translate-y-1/2 w-48 h-48 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
-
-        {/* Left Section: Voice channel status */}
-        <div className="flex flex-col items-start gap-1 z-10 max-w-[140px] xs:max-w-xs md:max-w-sm text-left shrink-0">
-          <div className="bg-violet-900/40 border border-violet-500/30 text-[10px] sm:text-[11px] px-2 py-0.5 sm:py-1 rounded-full text-violet-200 flex items-center gap-1.5 font-bold shadow-xs">
-            <span className={`w-1.5 h-1.5 rounded-full min-w-[6px] shrink-0 ${getWebrtcStatusColorClass()}`} />
-            <span className="truncate">Voice Mode{getWebrtcStatusLabel()}</span>
-          </div>
-          
-          <div className="hidden xs:block text-[10px] text-violet-300 font-medium truncate max-w-[150px] sm:max-w-[200px]">
-            {isSearching ? (
-              <span className="text-violet-400 font-medium animate-pulse">Scanning pool...</span>
-            ) : isPaired ? (
-              <span className="text-emerald-400 font-semibold flex items-center gap-1">Stranger active</span>
-            ) : (
-              <span className="text-violet-400/70">Idle</span>
-            )}
-          </div>
-        </div>
-
-        {/* Center Section: Compact Horizontal Pairing Flow */}
-        <div className="flex-grow flex items-center justify-center gap-2 sm:gap-4 z-10 px-2 min-w-0">
-          {/* YOU user status */}
-          <div className="relative shrink-0">
-            <div className={`absolute -inset-1.5 rounded-full bg-violet-500/25 blur-xs ${micActive && isPaired ? "animate-pulse" : ""}`} />
-            <div 
-              className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center flex-col transition-all overflow-hidden ${
-                micActive 
-                  ? "bg-violet-600/20 border-violet-500/40 text-violet-300 shadow-xs shadow-violet-500/20" 
-                  : "bg-slate-900 border-slate-800 text-slate-500"
-              }`}
-            >
-              {micActive ? (
-                <Mic className="w-3.5 h-3.5 sm:w-4.5 sm:h-4.5 animate-pulse" />
-              ) : (
-                <MicOff className="w-3.5 h-3.5 sm:w-4.5 sm:h-4.5" />
-              )}
-            </div>
-          </div>
-
-          {/* Sound Wave Indicator */}
-          <div className="flex items-center justify-center h-6 w-10 sm:w-14 relative shrink-0">
-            {isPaired ? (
-              <div className="flex items-end justify-center gap-[3px] h-4 w-full">
-                {[0.4, 0.9, 0.5, 0.7, 0.3].map((offset, idx) => (
-                  <motion.div
-                    key={idx}
-                    animate={{
-                      height: micActive ? ["3px", "14px", "3px"] : "3px"
-                    }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 0.7 / offset,
-                      ease: "easeInOut",
-                      delay: idx * 0.08
-                    }}
-                    className="w-[3px] rounded-full bg-gradient-to-t from-violet-500 to-indigo-400"
-                  />
-                ))}
-              </div>
-            ) : (
-              <motion.div
-                animate={{
-                  translateX: ["-10px", "10px", "-10px"]
-                }}
-                transition={{
-                  repeat: Infinity,
-                  duration: 1.4,
-                  ease: "easeInOut"
-                }}
-                className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_6px_#a78bfa]"
-              />
-            )}
-          </div>
-
-          {/* STRANGER status */}
-          <div className="relative shrink-0">
-            <div className={`absolute -inset-1.5 rounded-full bg-sky-500/20 blur-xs ${isPaired ? "animate-pulse" : ""}`} />
-            <div 
-              className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center flex-col transition-all overflow-hidden ${
-                isPaired 
-                  ? "bg-sky-500/20 border-sky-500/40 text-sky-400 shadow-xs shadow-sky-500/15" 
-                  : "bg-slate-900 border-slate-800 text-slate-500"
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 sm:w-4.5 sm:h-4.5" />
-            </div>
-          </div>
-        </div>
-
-        {/* Right Section: Microphone & Connection Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 z-10 shrink-0">
-
-          <button
-            id="bg-btn-voice-toggle-mic"
-            type="button"
-            onClick={onToggleMic}
-            className={`p-1.5 sm:p-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl transition-all cursor-pointer font-bold text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 border ${
-              micActive
-                ? "bg-gradient-to-r from-violet-600 via-indigo-600 to-indigo-700 hover:scale-[1.03] active:scale-95 border-violet-400 text-white shadow-md shadow-violet-900/30"
-                : "bg-rose-500/20 hover:bg-rose-500/30 border-rose-500/30 text-rose-300 active:scale-95"
-            }`}
-            title={micActive ? "Mute Microphone" : "Unmute Microphone"}
-          >
-            {micActive ? (
-              <>
-                <Mic className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline">Mute</span>
-              </>
-            ) : (
-              <>
-                <MicOff className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline font-black text-rose-200">Unmute</span>
-              </>
-            )}
-          </button>
-          
-          {onRetryWebRTC && (webrtcStatus === "failed" || webrtcStatus === "disconnected") && (
-            <button
-              type="button"
-              onClick={onRetryWebRTC}
-              className="bg-violet-900/40 hover:bg-violet-850/60 border border-violet-700/50 text-violet-200 font-bold px-2 py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs transition-all cursor-pointer active:scale-95 shrink-0"
-            >
-              Retry P2P
-            </button>
-          )}
-        </div>
-
-        {/* Hidden native audio tag to play the remote voice stream */}
-        {isPaired && remoteStream && (
-          <audio
-            ref={remoteAudioCallback}
-            autoPlay
-            controls={false}
-            className="hidden"
-          />
-        )}
-      </div>
-    );
-  }
-
   // Choose container class list helper based on layout preference
   const getContainerClassName = () => {
     let classes = "";
@@ -465,6 +313,24 @@ export default function VideoPlayer({
 
   return (
     <div ref={containerRef} className={getContainerClassName()}>
+      
+      {/* Floating Iframe Restrictions Alert Bar */}
+      {isInsideIframe && (
+        <div className="absolute top-14 left-2 right-12 sm:top-[68px] sm:left-4 sm:right-16 z-[45] bg-amber-500/95 backdrop-blur-md text-white text-[10px] sm:text-xs font-bold px-3 py-2 rounded-xl flex items-center justify-between shadow-2xl border border-amber-600/30 gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="shrink-0">⚠️</span>
+            <span className="truncate">Sandbox restricted. Video calls require a direct secure tab.</span>
+          </div>
+          <a
+            href={typeof window !== "undefined" ? window.location.href : "#"}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="shrink-0 bg-white hover:bg-slate-50 text-amber-700 font-extrabold px-2.5 py-1 rounded-lg text-[9px] sm:text-[10px] uppercase tracking-wider shadow-sm transition-all text-center select-none cursor-pointer"
+          >
+            Open New Tab ↗
+          </a>
+        </div>
+      )}
       
       {/* Floating Layout Selector HUD Tag */}
       <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-40 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-0.5 flex items-center gap-0.5 shadow-xl">
@@ -514,49 +380,36 @@ export default function VideoPlayer({
         layout
         className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
-        {/* Persistent, un-unmounted video element that survives ALL state/track adjustments. */}
-        {isPaired && (
+        {isPaired && (webrtcStatus === "connected" || webrtcStatus === "completed") && remoteStream ? (
           <video
             id="remote-video"
             ref={remoteVideoCallback}
             autoPlay
             playsInline
-            muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
-        )}
-
-        {/* Overlays / Fallbacks presented on top of the active video stream if video tracks are temporarily offline, but keeping video element mounted for continuous audio */}
-        {isPaired && (!remoteStream || remoteStream.getVideoTracks().length === 0) && (
-          remoteVideoFrame ? (
-            <img
-              src={remoteVideoFrame}
-              className="absolute inset-0 w-full h-full object-cover bg-slate-950 select-none pointer-events-none z-10"
-              alt="Remote Stranger Feed"
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
-              <div className="space-y-3">
-                <div className="rounded-full bg-slate-800/80 p-3 mx-auto w-fit text-slate-400 border border-slate-700 animate-pulse">
-                  <span className={`w-2.5 h-2.5 rounded-full inline-block ${getWebrtcStatusColorClass()}`} />
-                </div>
-                <div className="space-y-1">
-                  <p className="font-semibold text-slate-300 text-sm">Waiting for Stranger's Feed...</p>
-                  <p className="text-xs text-slate-500">Audio is fully connected and active</p>
-                </div>
-              </div>
-            </div>
-          )
-        )}
-
-        {!isPaired && (
+        ) : isPaired && remoteVideoFrame ? (
+          <img
+            src={remoteVideoFrame}
+            className="w-full h-full object-cover bg-slate-950 select-none pointer-events-none"
+            alt="Remote Stranger Feed"
+          />
+        ) : isPaired && remoteStream ? (
+          <video
+            id="remote-video"
+            ref={remoteVideoCallback}
+            autoPlay
+            playsInline
+            className="w-full h-full object-cover bg-slate-950"
+          />
+        ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
             {isSearching ? (
               <div className="space-y-4">
                 <div className="relative flex items-center justify-center">
                   <span className="absolute inline-flex h-12 w-12 rounded-full bg-sky-400 opacity-20 animate-ping"></span>
                   <div className="relative rounded-full bg-sky-500 p-3 text-white">
-                     <Users className="h-6 w-6 animate-pulse" />
+                    <Users className="h-6 w-6 animate-pulse" />
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -578,7 +431,178 @@ export default function VideoPlayer({
           </div>
         )}
 
+        {/* Autoplay blocked recovery overlay */}
+        {isPaired && remoteStream && autoplayBlocked && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md z-30 p-6 text-center">
+            <div className="space-y-4 max-w-xs bg-slate-900/90 p-6 rounded-2xl border border-slate-800 shadow-2xl">
+              <div className="mx-auto w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                <Mic className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-semibold text-white">Unmute stranger stream</h4>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  {isInsideIframe
+                    ? "Web browsers in iframe sandboxes require a user interaction to connect sound or video. Tap below to connect fully!"
+                    : "Modern browsers require a click or tap to allow audio/video playback from a secure stranger stream."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRecoverAutoplay}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all cursor-pointer"
+              >
+                Connect Voice & Video
+              </button>
+            </div>
+          </div>
+        )}
 
+        {/* WebRTC Failed Troubleshooting Overlay */}
+        {isPaired && webrtcStatus === "failed" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-sm z-30 p-4 text-center">
+            {isInsideIframe ? (
+              <div className="space-y-3.5 max-w-sm bg-slate-900 border border-rose-500/30 p-5 rounded-2xl shadow-2xl text-left">
+                <div className="mx-auto w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                  <AlertCircle className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="space-y-1 text-center">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">WebRTC Connection Blocked</h4>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Google Chrome prevents custom Peer-to-Peer (P2P) signaling when running inside a sandboxed preview frame.
+                  </p>
+                </div>
+                <div className="text-[10px] text-slate-350 bg-slate-950/50 p-3 rounded-xl border border-slate-800 space-y-1.5 leading-relaxed">
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">1.</span>
+                    <span>Click the <strong>Open in New Tab</strong> button on the top-right of your screen.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">2.</span>
+                    <span>Select <strong>Webcam Video & Voice</strong> mode to engage your devices.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">3.</span>
+                    <span>Already on a separate secure tab? Click <strong>Dismiss Warning</strong> below.</span>
+                  </div>
+                </div>
+                <a
+                  href={typeof window !== "undefined" ? window.location.href : "#"}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="block text-center w-full bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-[11px] font-bold py-2.5 px-3 rounded-lg shadow-md transition-all select-none text-decoration-none"
+                >
+                  Open in a Secure New Tab ↗
+                </a>
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-slate-850/60 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      console.log("[VideoPlayer] User manually bypassed iframe warning.");
+                      setIsInsideIframe(false);
+                    }}
+                    className="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold py-1.5 px-2 rounded-lg transition-colors cursor-pointer border border-slate-700"
+                  >
+                    Dismiss Warning
+                  </button>
+                  {onRetryWebRTC && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsInsideIframe(false);
+                        onRetryWebRTC();
+                      }}
+                      className="flex-1 text-center bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold py-1.5 px-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+                    >
+                      🔄 Retry Call
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const skipBtn = document.getElementById("chat-panel-skip-btn") || document.getElementById("btn-skip-match");
+                      if (skipBtn) {
+                        try {
+                          (skipBtn as any).click();
+                        } catch (e) {
+                          console.warn("Could not auto-trigger Skip element action", e);
+                        }
+                      }
+                    }}
+                    className="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] py-1.5 px-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3.5 max-w-sm bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-2xl text-left">
+                <div className="mx-auto w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <AlertCircle className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="space-y-1 text-center">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Connection Delay or Interruption</h4>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Unable to establish a secure direct peer-to-peer data tunnel with the connected stranger.
+                  </p>
+                </div>
+                <div className="text-[10px] text-slate-350 bg-slate-950/50 p-3 rounded-xl border border-slate-800 space-y-1.5 leading-relaxed">
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">•</span>
+                    <span><strong>Testing alone?</strong> Standard webcams can only stream to one client window at a time. Open an Incognito window or use a different device to test.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">•</span>
+                    <span>Make sure your webcam/mic is not already active in another app (like Zoom, Teams, Meet) or on another tab of this app.</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-indigo-400 font-extrabold shrink-0">•</span>
+                    <span>Click <strong>Retry Connection</strong> below to force a re-negotiation of peer networks.</span>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  {onRetryWebRTC && (
+                    <button
+                      type="button"
+                      onClick={onRetryWebRTC}
+                      className="flex-1 text-center bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold py-2 px-3 rounded-lg shadow-md transition-all cursor-pointer"
+                    >
+                      🔄 Retry Connection
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const skipBtn = document.getElementById("chat-panel-skip-btn") || document.getElementById("btn-skip-match");
+                      if (skipBtn) {
+                        try {
+                          (skipBtn as any).click();
+                        } catch (e) {
+                          console.warn("Could not auto-trigger Skip element action", e);
+                        }
+                      }
+                    }}
+                    className="flex-1 text-center bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold py-2 px-3 rounded-lg shadow-xs transition-colors cursor-pointer border border-slate-700"
+                  >
+                    Skip & Connect Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Video Overlay Status Tag */}
+        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30">
+          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
+            webrtcStatus === "connected" || webrtcStatus === "completed" 
+              ? "bg-emerald-500 animate-pulse" 
+              : webrtcStatus === "checking" || webrtcStatus === "connecting"
+                ? "bg-sky-500 animate-spin"
+                : "bg-amber-500 animate-pulse"
+          }`} />
+          Stranger Live {webrtcStatus && webrtcStatus !== "idle" && `(${webrtcStatus})`}
+        </div>
       </motion.div>
  
       {/* LOCAL USER VIEW BLOCK */}
@@ -603,17 +627,16 @@ export default function VideoPlayer({
             : "relative w-full h-full min-h-0 rounded-2xl border border-slate-800"
         }`}
       >
-        {localStream && (
+        {localStream && cameraActive ? (
           <video
             id="local-video"
             ref={localVideoCallback}
             autoPlay
             playsInline
-            muted={true}
-            className={`w-full h-full bg-slate-950 mirror-mode object-cover ${cameraActive ? "block" : "hidden"}`}
+            muted
+            className="w-full h-full bg-slate-950 mirror-mode object-cover"
           />
-        )}
-        {(!localStream || !cameraActive) && (
+        ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center p-3 bg-radial from-slate-900 to-slate-950">
             <CameraOff className={`mx-auto text-slate-500 ${layoutMode === "pip" ? "h-4 w-4" : "h-6 w-6 mb-1"}`} />
             <p className={`font-semibold text-slate-400 text-center ${layoutMode === "pip" ? "text-[8px]" : "text-xs"}`}>

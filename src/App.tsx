@@ -5,7 +5,6 @@ import { Message, AppState } from "./types";
 import VideoPlayer from "./components/VideoPlayer";
 import ChatPanel from "./components/ChatPanel";
 import AdContainer from "./components/AdContainer";
-import AdManager from "./components/AdManager";
 import { initGA, trackEvent } from "./utils/analytics";
 import { 
   Users, 
@@ -20,8 +19,7 @@ import {
   Share2, 
   Tv,
   Info,
-  ArrowLeft,
-  Volume2
+  ArrowLeft
 } from "lucide-react";
 
 const POPULAR_SUGGESTIONS = [
@@ -32,7 +30,7 @@ export default function App() {
   // Core Selection Preferences
   const [interests, setInterests] = useState<string[]>([]);
   const [interestInput, setInterestInput] = useState("");
-  const [mode, setMode] = useState<"text" | "voice" | "video">("text");
+  const [mode, setMode] = useState<"text" | "video">("text");
   const [autoConnect, setAutoConnect] = useState<boolean>(true);
   const [isInsideIframe, setIsInsideIframe] = useState(false);
 
@@ -65,8 +63,6 @@ export default function App() {
 
   // Terms and conditions agreement states
   const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
-  const [confirmedAge, setConfirmedAge] = useState<boolean>(false);
-  const [agreementError, setAgreementError] = useState<string | null>(null);
   const [showTermsDetail, setShowTermsDetail] = useState<boolean>(false);
   const [showPrivacyDetail, setShowPrivacyDetail] = useState<boolean>(false);
 
@@ -79,63 +75,19 @@ export default function App() {
   const [isStreamLoading, setIsStreamLoading] = useState(false);
   const [webrtcStatus, setWebrtcStatus] = useState<string>("idle");
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null);
-  const [showSocketFallback, setShowSocketFallback] = useState<boolean>(false);
 
   // References
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioElementRef = useRef<HTMLAudioElement | null>(null);
-  const lastPlayedAudioTrackIdsRef = useRef<string[]>([]);
-  const modeRef = useRef<"text" | "voice" | "video">(mode);
+  const modeRef = useRef<"text" | "video">(mode);
   const partnerIdRef = useRef<string | null>(partnerId);
   const signalProcessingQueueRef = useRef<{ signal: any; from: string }[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   const pendingRemoteCandidatesRef = useRef<any[]>([]);
   const isInitiatorRef = useRef<boolean>(false);
-  const iceServersRef = useRef<RTCIceServer[]>([]);
-
-  // Sequenced fallback audio queue references to eliminate playback overlapping stutter
-  const audioQueueRef = useRef<string[]>([]);
-  const isPlayingAudioQueueRef = useRef<boolean>(false);
-  const currentPlayingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Sync refs to avoid stale closures in socket events
-  const appStateRef = useRef<AppState>(appState);
-
-  useEffect(() => {
-    const loadGithubIceServers = () => {
-      const fallbackServers: RTCIceServer[] = [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-        { urls: "stun:openrelay.metered.ca:80" },
-        {
-          urls: [
-            "turn:openrelay.metered.ca:80",
-            "turn:openrelay.metered.ca:443",
-            "turn:openrelay.metered.ca:443?transport=tcp",
-            "turns:openrelay.metered.ca:443?transport=tcp",
-            "turn:openrelay.metered.ca:3478?transport=udp",
-            "turn:openrelay.metered.ca:3478?transport=tcp"
-          ],
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        }
-      ];
-      console.log("[WebRTC] Initialized fast, high-availability STUN and TURN configurations.");
-      iceServersRef.current = fallbackServers;
-    };
-    loadGithubIceServers();
-  }, []);
-
-  useEffect(() => {
-    appStateRef.current = appState;
-  }, [appState]);
-
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -164,36 +116,15 @@ export default function App() {
     localStreamRef.current = localStream;
   }, [localStream]);
 
-  // Delay/gate custom WebSocket media relaying from starting during initial setup to keep candidate channels clear
+  // Handle client-side interest priority fallback messaging
   useEffect(() => {
-    if (appState !== "paired" || mode !== "video") {
-      setShowSocketFallback(false);
-      return;
+    if (appState === "searching" && interests.length > 0) {
+      const timer = setTimeout(() => {
+        addSystemMessage("No common interest partner found within 5 seconds. Widening search to all online strangers...");
+      }, 5000);
+      return () => clearTimeout(timer);
     }
-
-    // Stop manual fallback immediately if standard PeerConnection succeeds
-    if (webrtcStatus === "connected" || webrtcStatus === "completed") {
-      setShowSocketFallback(false);
-      return;
-    }
-
-    // Activate immediately if standard PeerConnection explicitly reports failure
-    if (webrtcStatus === "failed") {
-      setShowSocketFallback(true);
-      return;
-    }
-
-    // Allow a 4.5-second grace period for WebRTC peers to establish a P2P connection,
-    // otherwise activate WebSocket media fallback instantly so the user never sees a black list/freeze!
-    const timer = setTimeout(() => {
-      if (webrtcStatus !== "connected" && webrtcStatus !== "completed") {
-        console.log("[MediaRelay] WebRTC connection did not establish within 4.5 seconds. Activating seamless WebSocket media fallback.");
-        setShowSocketFallback(true);
-      }
-    }, 4500);
-
-    return () => clearTimeout(timer);
-  }, [appState, mode, webrtcStatus]);
+  }, [appState, interests]);
 
   // Seamless Custom Socket-based Media Relaying & Fallback Engine
   useEffect(() => {
@@ -203,28 +134,18 @@ export default function App() {
     const currentPartner = partnerId;
     const socket = socketRef.current;
     
-    // We only stream if paired, video mode is active, socket is up, AND fallback has been explicitly triggered
-    if (appState !== "paired" || mode !== "video" || !currentPartner || !socket || !showSocketFallback) {
+    // We only stream if paired, in video mode, and socket is active
+    if (appState !== "paired" || mode !== "video" || !currentPartner || !socket) {
       return;
     }
 
-    // Smart fallback behavior: If WebRTC is successfully connected or completed,
-    // we suspend the canvas screenshot rendering and the audio recording.
-    // This stops massive base64 transfers over WebSocket, freeing 100% of CPU and network bandwidth
-    // to let standard high-performance, synchronous WebRTC streams function without lag or stutter.
-    if (webrtcStatus === "connected" || webrtcStatus === "completed") {
-      console.log("[MediaRelay] Pure WebRTC is active and connected. Suspending manual socket media relaying.");
-      setRemoteVideoFrame(null);
-      return;
-    }
+    console.log("[MediaRelay] Launching smart media socket relay fallback streams...");
 
-    console.log("[MediaRelay] WebRTC is negotiating/connecting/failed. Activating custom socket-based media relay fallbacks...");
-
-    // 1. Video Frame capturing (every ~220ms, highly optimized yet network-light!)
+    // 1. Video Frame capturing (every ~85ms -> ~11 fps, highly fluid yet network-light!)
     if (cameraActive && localStream) {
       const offscreenCanvas = document.createElement("canvas");
-      offscreenCanvas.width = 180;
-      offscreenCanvas.height = 135;
+      offscreenCanvas.width = 300;
+      offscreenCanvas.height = 220;
       const ctx = offscreenCanvas.getContext("2d");
 
       videoIntervalId = setInterval(() => {
@@ -232,7 +153,7 @@ export default function App() {
         if (localVideoEl && !localVideoEl.paused && !localVideoEl.ended && ctx) {
           try {
             ctx.drawImage(localVideoEl, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.25); // ultra highly compressed small JPEG to avoid buffer jams
+            const base64Frame = offscreenCanvas.toDataURL("image/jpeg", 0.4); // highly compressed
             socket.emit("webrtc-signal", {
               to: currentPartner,
               signal: { mediaFrame: base64Frame }
@@ -241,120 +162,55 @@ export default function App() {
             console.warn("[MediaRelay] Error rendering local video frame:", e);
           }
         }
-      }, 220); // optimized low-band screenshot rate to avoid CPU/websocket jams and keep audio in sync
+      }, 85);
     }
 
-    // 2. Audio chunks capturing/encoding (running in independent 350ms low-latency burst recorder loops)
-    let audioLoopActive = true;
-    let pendingTimeoutId: any = null;
-    let currentRecorder: MediaRecorder | null = null;
-
-    const startRecordingBurst = () => {
-      const pc = pcRef.current;
-      const isWebRTCActive = !!(pc && (
-        pc.connectionState === "connected" || 
-        pc.iceConnectionState === "connected" || 
-        pc.connectionState === "completed" || 
-        pc.iceConnectionState === "completed"
-      ));
-      if (!audioLoopActive || !micActive || !localStream || isWebRTCActive) {
-        return;
-      }
-
+    // 2. Audio chunks capturing/encoding (running in 250ms chunks)
+    if (micActive && localStream) {
       const audioTracks = localStream.getAudioTracks();
-      if (audioTracks.length === 0) return;
-
-      try {
-        const recordStream = new MediaStream(audioTracks);
-        let mimeOption = "";
+      if (audioTracks.length > 0) {
         try {
-          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-            mimeOption = "audio/webm;codecs=opus";
-          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-            mimeOption = "audio/mp4";
-          } else if (MediaRecorder.isTypeSupported("audio/aac")) {
-            mimeOption = "audio/aac";
+          const recordStream = new MediaStream(audioTracks);
+          let mimeOption = "";
+          try {
+            if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+              mimeOption = "audio/webm;codecs=opus";
+            } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+              mimeOption = "audio/mp4";
+            } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+              mimeOption = "audio/aac";
+            }
+          } catch (e) {
+            // isTypeSupported fallback
           }
-        } catch (e) {
-          // ignore check errors
-        }
 
-        const recorder = new MediaRecorder(
-          recordStream,
-          mimeOption ? { mimeType: mimeOption } : undefined
-        );
-        currentRecorder = recorder;
+          const recorder = new MediaRecorder(
+            recordStream,
+            mimeOption ? { mimeType: mimeOption } : undefined
+          );
 
-        const chunks: Blob[] = [];
-        recorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        };
-
-        recorder.onstop = () => {
-          const pc = pcRef.current;
-          const isWebRTCActiveNow = !!(pc && (
-            pc.connectionState === "connected" || 
-            pc.iceConnectionState === "connected" || 
-            pc.connectionState === "completed" || 
-            pc.iceConnectionState === "completed"
-          ));
-
-          if (chunks.length > 0 && !isWebRTCActiveNow) {
-            const audioBlob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64Audio = reader.result as string;
-              if (socket && partnerIdRef.current === currentPartner) {
-                // Double check WebRTC state right before sending
-                const finalPc = pcRef.current;
-                const finalWebRTCActive = !!(finalPc && (
-                  finalPc.connectionState === "connected" || 
-                  finalPc.iceConnectionState === "connected" || 
-                  finalPc.connectionState === "completed" || 
-                  finalPc.iceConnectionState === "completed"
-                ));
-                if (!finalWebRTCActive) {
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64Audio = reader.result as string;
+                if (socket && partnerIdRef.current === currentPartner) {
                   socket.emit("webrtc-signal", {
                     to: currentPartner,
                     signal: { mediaAudioChunk: base64Audio }
                   });
                 }
-              }
-            };
-            reader.readAsDataURL(audioBlob);
-          }
-
-          // Trigger next slice if active and standard WebRTC is still not alive
-          if (audioLoopActive && !isWebRTCActiveNow) {
-            pendingTimeoutId = setTimeout(startRecordingBurst, 10);
-          }
-        };
-
-        recorder.start();
-
-        // Let the burst record for exactly 350ms to get beautiful, low-latency independent audio chunks with perfect headers
-        pendingTimeoutId = setTimeout(() => {
-          if (recorder.state !== "inactive") {
-            try {
-              recorder.stop();
-            } catch (err) {
-              // ignore
+              };
+              reader.readAsDataURL(event.data);
             }
-          }
-        }, 350);
+          };
 
-      } catch (recorderErr) {
-        console.error("[MediaRelay] Blocked audio recording slice:", recorderErr);
-        if (audioLoopActive) {
-          pendingTimeoutId = setTimeout(startRecordingBurst, 500);
+          audioRecorder = recorder;
+          recorder.start(250); // Emit audio slices every 250ms
+        } catch (recorderErr) {
+          console.error("[MediaRelay] Failed to bootstrap custom audio recorder fallback:", recorderErr);
         }
       }
-    };
-
-    if (micActive && localStream) {
-      startRecordingBurst();
     }
 
     return () => {
@@ -362,19 +218,15 @@ export default function App() {
       if (videoIntervalId) {
         clearInterval(videoIntervalId);
       }
-      audioLoopActive = false;
-      if (pendingTimeoutId) {
-        clearTimeout(pendingTimeoutId);
-      }
-      if (currentRecorder && currentRecorder.state !== "inactive") {
+      if (audioRecorder && audioRecorder.state !== "inactive") {
         try {
-          currentRecorder.stop();
+          audioRecorder.stop();
         } catch (stopErr) {
           // ignore
         }
       }
     };
-  }, [appState, partnerId, mode, cameraActive, micActive, localStream, webrtcStatus, showSocketFallback]);
+  }, [appState, partnerId, mode, cameraActive, micActive, localStream]);
 
   // Process queued WebRTC signaling messages safely and sequentially (FIFO) to prevent concurrent state collisions
   const processSequentialQueue = async () => {
@@ -398,9 +250,8 @@ export default function App() {
           if (signal.offer) {
             console.log("[SIGNALING] Processing offer from:", from);
             let activePc = pcRef.current;
-            // If the responder's PeerConnection doesn't exist or is closed, we instantiate/recreate it safely.
-            // We do NOT destroy/recreate for "failed" or "disconnected" because these can naturally be recovered by ICE Restarts on the same PeerConnection!
-            if (!activePc || activePc.signalingState === "closed" || activePc.connectionState === "closed") {
+            // If the responder's PeerConnection is failed, disconnected, or closed, we recreate it before applying
+            if (!activePc || activePc.connectionState === "failed" || activePc.connectionState === "disconnected" || activePc.connectionState === "closed") {
               console.log("[WEBRTC] Receiver's PeerConnection is stale/failed. Re-instantiating responder connection before applying offer...");
               await initiateWebRTCPeer(from, false);
               activePc = pcRef.current;
@@ -408,14 +259,8 @@ export default function App() {
             if (activePc) {
               console.log("[SIGNALING] Calling setRemoteDescription with remote offer");
               try {
-                // Boost content quality and buffer limits of received offer
-                const optimizedSdp = setMediaBitrates(signal.offer.sdp, 2500, 128);
-                const remoteOfferSpec = new RTCSessionDescription({
-                  type: "offer",
-                  sdp: optimizedSdp
-                });
-                await activePc.setRemoteDescription(remoteOfferSpec);
-                console.log("[SIGNALING] setRemoteDescription (offer) succeeded with boosted bitrates");
+                await activePc.setRemoteDescription(signal.offer);
+                console.log("[SIGNALING] setRemoteDescription (offer) succeeded");
               } catch (err) {
                 console.error("[SIGNALING] setRemoteDescription (offer) failed:", err);
                 throw err;
@@ -424,11 +269,7 @@ export default function App() {
               console.log("[SIGNALING] Calling createAnswer");
               let answer;
               try {
-                // Explicitly request audio & video receiving capabilities
-                answer = await activePc.createAnswer({
-                  offerToReceiveAudio: true,
-                  offerToReceiveVideo: true
-                });
+                answer = await activePc.createAnswer();
                 console.log("[SIGNALING] createAnswer succeeded:", answer);
               } catch (err) {
                 console.error("[SIGNALING] createAnswer failed:", err);
@@ -437,27 +278,16 @@ export default function App() {
 
               console.log("[SIGNALING] Calling setLocalDescription with generated answer");
               try {
-                // Custom boost answer SDP quality configurations
-                const optimizedSdp = setMediaBitrates(answer.sdp!, 2500, 128);
-                const localAnswerSpec = new RTCSessionDescription({
-                  type: "answer",
-                  sdp: optimizedSdp
-                });
-                await activePc.setLocalDescription(localAnswerSpec);
-                console.log("[SIGNALING] setLocalDescription (answer) succeeded with boosted bitrates");
+                await activePc.setLocalDescription(answer);
+                console.log("[SIGNALING] setLocalDescription (answer) succeeded");
               } catch (err) {
                 console.error("[SIGNALING] setLocalDescription (answer) failed:", err);
                 throw err;
               }
 
-              // Send the high-quality SDP Answer back
-              const finalAnswerToSend = {
-                type: "answer",
-                sdp: setMediaBitrates(answer.sdp!, 2500, 128)
-              };
               socketRef.current?.emit("webrtc-signal", {
                 to: from,
-                signal: { answer: finalAnswerToSend }
+                signal: { answer }
               });
 
               // Process any stored candidates that were received before remote description was set
@@ -491,14 +321,8 @@ export default function App() {
             if (pc) {
               console.log("[SIGNALING] Calling setRemoteDescription with remote answer");
               try {
-                // Boost description values for received answer
-                const optimizedSdp = setMediaBitrates(signal.answer.sdp, 2500, 128);
-                const remoteAnswerSpec = new RTCSessionDescription({
-                  type: "answer",
-                  sdp: optimizedSdp
-                });
-                await pc.setRemoteDescription(remoteAnswerSpec);
-                console.log("[SIGNALING] setRemoteDescription (answer) succeeded with boosted bitrates");
+                await pc.setRemoteDescription(signal.answer);
+                console.log("[SIGNALING] setRemoteDescription (answer) succeeded");
               } catch (err) {
                 console.error("[SIGNALING] setRemoteDescription (answer) failed:", err);
                 throw err;
@@ -546,22 +370,13 @@ export default function App() {
                   const offer = await activePc.createOffer();
                   console.log("[SIGNALING] createOffer succeeded:", offer);
                   
-                  console.log("[SIGNALING] Calling setLocalDescription with optimized SDP bitrates");
-                  const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
-                  const localOfferSpec = new RTCSessionDescription({
-                    type: "offer",
-                    sdp: optimizedSdp
-                  });
-                  await activePc.setLocalDescription(localOfferSpec);
+                  console.log("[SIGNALING] Calling setLocalDescription with generated offer");
+                  await activePc.setLocalDescription(offer);
                   console.log("[SIGNALING] setLocalDescription (offer) succeeded");
 
-                  const finalOfferToSend = {
-                    type: "offer",
-                    sdp: optimizedSdp
-                  };
                   socketRef.current?.emit("webrtc-signal", {
                     to: from,
-                    signal: { offer: finalOfferToSend }
+                    signal: { offer }
                   });
                 } catch (err) {
                   console.error("[SIGNALING] Failed to generate/negotiate offer during requestOffer process:", err);
@@ -617,88 +432,6 @@ export default function App() {
     processSequentialQueue();
   };
 
-  const stopAndClearFallbackAudio = () => {
-    if (currentPlayingAudioRef.current) {
-      try {
-        console.log("[AudioRelay] Actively silencing and stopping playing fallback audio chunk to eliminate echo.");
-        currentPlayingAudioRef.current.pause();
-        currentPlayingAudioRef.current.src = "";
-      } catch (err) {
-        console.warn("[AudioRelay] Error pausing playing audio reference:", err);
-      }
-      currentPlayingAudioRef.current = null;
-    }
-    audioQueueRef.current = [];
-    isPlayingAudioQueueRef.current = false;
-  };
-
-  // Process sequentially queued base64 voice slices to eliminate playback overlapping stutter
-  const playNextAudioQueueChunk = () => {
-    const pc = pcRef.current;
-    const isWebRTCActive = (pc && (
-      pc.connectionState === "connected" || 
-      pc.iceConnectionState === "connected" || 
-      pc.connectionState === "completed" || 
-      pc.iceConnectionState === "completed"
-    )) || !!remoteStream;
-    if (isWebRTCActive) {
-      stopAndClearFallbackAudio();
-      return;
-    }
-
-    // Dynamic backlog pruning: if more than 2 chunks build up, keep only the latest 1
-    // to instantly drop stale buffer delay and sync in true real-time.
-    if (audioQueueRef.current.length > 2) {
-      console.log(`[AudioRelay] Low latency sync: dropping ${audioQueueRef.current.length - 1} stale chunk(s) to restore lowest lag.`);
-      audioQueueRef.current = audioQueueRef.current.slice(-1);
-    }
-
-    if (audioQueueRef.current.length === 0) {
-      isPlayingAudioQueueRef.current = false;
-      return;
-    }
-
-    isPlayingAudioQueueRef.current = true;
-    const nextChunk = audioQueueRef.current.shift();
-    if (!nextChunk) {
-      playNextAudioQueueChunk();
-      return;
-    }
-
-    try {
-      const audio = new Audio(nextChunk);
-      currentPlayingAudioRef.current = audio;
-      audio.volume = 1.0;
-      audio.onended = () => {
-        if (currentPlayingAudioRef.current === audio) {
-          currentPlayingAudioRef.current = null;
-        }
-        playNextAudioQueueChunk();
-      };
-      audio.onerror = () => {
-        console.warn("[AudioRelay] Failed playing audio chunk from queue, skipping...");
-        if (currentPlayingAudioRef.current === audio) {
-          currentPlayingAudioRef.current = null;
-        }
-        playNextAudioQueueChunk();
-      };
-      audio.play().then(() => {
-        // Successfully playing
-      }).catch((err) => {
-        console.log("[AudioRelay] Playback deferred:", err.message);
-        if (currentPlayingAudioRef.current === audio) {
-          currentPlayingAudioRef.current = null;
-        }
-        // If playback was deferred (e.g. user gesture block), retry in next cycle or skip
-        // to prevent blocking the queue.
-        setTimeout(playNextAudioQueueChunk, 800);
-      });
-    } catch (err) {
-      console.error("[AudioRelay] Audio creation error in queue:", err);
-      playNextAudioQueueChunk();
-    }
-  };
-
   // Lazy instantiate socket.io client
   const initSocketConnection = () => {
     if (socketRef.current) return;
@@ -718,7 +451,6 @@ export default function App() {
 
     // Match established callback
     socket.on("paired", async ({ peerId, initiator, commonInterests: common }) => {
-      if (appStateRef.current === "landing") return;
       partnerIdRef.current = peerId; // STABILIZE REF SYNCHRONOUSLY!
       isInitiatorRef.current = initiator; // Save initiator value!
       setPartnerId(peerId);
@@ -733,87 +465,73 @@ export default function App() {
         common_interests: common,
       });
 
-      addSystemMessage("stranger connected");
+      addSystemMessage("Stranger connected!");
+      if (common.length > 0) {
+        addSystemMessage(`You share common interest(s): ${common.join(", ")}`);
+      } else {
+        addSystemMessage("Searching found a random stranger.");
+      }
 
-      // If user selected Video or Voice mode, instantly negotiate WebRTC peer stream
-      if (modeRef.current === "video" || modeRef.current === "voice") {
+      // If user selected Video mode, instantly negotiate WebRTC peer stream
+      if (modeRef.current === "video") {
         await initiateWebRTCPeer(peerId, initiator);
       }
     });
 
     // Handle instant incoming messages
     socket.on("chat-message", ({ text }: { text: string }) => {
-      if (appStateRef.current === "landing") return;
       addMessage("stranger", text);
     });
 
     // Handle typing status indications
     socket.on("typing", ({ isTyping }: { isTyping: boolean }) => {
-      if (appStateRef.current === "landing") return;
       setStrangerIsTyping(isTyping);
     });
 
     // WebRTC signaling relay callback
     socket.on("webrtc-signal", ({ from, signal }) => {
-      if (appStateRef.current === "landing") return;
       const currentPartner = partnerIdRef.current;
       if (from !== currentPartner) return;
       
       if (signal && signal.mediaFrame) {
-        // Only set the fallback remote frame if standard WebRTC P2P is not yet active
-        const pc = pcRef.current;
-        const isWebRTCActive = !!(pc && (
-          pc.connectionState === "connected" || 
-          pc.iceConnectionState === "connected" || 
-          pc.connectionState === "completed" || 
-          pc.iceConnectionState === "completed"
-        ));
-        if (!isWebRTCActive) {
-          setRemoteVideoFrame(signal.mediaFrame);
-        }
+        setRemoteVideoFrame(signal.mediaFrame);
       } else if (signal && signal.mediaAudioChunk) {
-        // Enqueue fallback audio chunks sequentially if standard WebRTC status is not yet active
-        const pc = pcRef.current;
-        const isWebRTCActive = !!(pc && (
-          pc.connectionState === "connected" || 
-          pc.iceConnectionState === "connected" || 
-          pc.connectionState === "completed" || 
-          pc.iceConnectionState === "completed"
-        ));
-        if (!isWebRTCActive) {
-          audioQueueRef.current.push(signal.mediaAudioChunk);
-          if (!isPlayingAudioQueueRef.current) {
-            playNextAudioQueueChunk();
-          }
-        } else {
-          // If WebRTC took over, immediately silence and discard any trailing fallback audio chunks to prevent echo
-          stopAndClearFallbackAudio();
+        try {
+          const audio = new Audio(signal.mediaAudioChunk);
+          audio.volume = 1.0;
+          audio.play().catch((err) => {
+            // Ignore minor benign playback alerts
+            console.log("[AudioRelay] Direct play deferred:", err.message);
+          });
+        } catch (audioErr) {
+          console.warn("[AudioRelay] Audio element builder failed:", audioErr);
         }
       } else {
         enqueueSignal(signal, from);
       }
     });
 
-     // Handle sudden stranger disconnects or leaves
+    // Handle sudden stranger disconnects or leaves
     socket.on("stranger-disconnected", () => {
-      if (appStateRef.current === "landing") return;
+      addSystemMessage("Stranger has disconnected.");
       cleanPeerConnection();
       trackEvent("match_disconnected", { mode: modeRef.current });
       if (autoConnectRef.current) {
+        addSystemMessage("Auto-Connecting with a new stranger in 1.5 seconds...");
         setTimeout(() => {
           handleSkipMatch();
         }, 1500);
       } else {
         setAppState("idle");
+        addSystemMessage("Connection paused. Refine your interests or click Resume/Connect to start matching.");
       }
     });
 
     // Socket fallback status logs
     socket.on("disconnect", () => {
+      addSystemMessage("Lost connection to server. Retrying...");
       cleanPeerConnection();
-      if (appStateRef.current !== "landing") {
-        setAppState("idle");
-      }
+      setAppState("idle");
     });
   };
 
@@ -842,101 +560,49 @@ export default function App() {
   };
 
   // Safe request camera/mic feeds
-  const requestLocalStream = async (overrideMode?: "text" | "voice" | "video"): Promise<MediaStream | null> => {
+  const requestLocalStream = async (): Promise<MediaStream | null> => {
     setIsStreamLoading(true);
     let resolvedStream: MediaStream | null = null;
-    const activeMode = overrideMode || modeRef.current;
-    const wantsVideo = activeMode === "video";
-
     try {
-      const constraints: MediaStreamConstraints = wantsVideo ? {
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640, max: 640 },
-          height: { ideal: 360, max: 360 },
-          frameRate: { ideal: 15, max: 15 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           facingMode: "user"
         },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      } : {
-        video: false,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        audio: true
+      });
       localStreamRef.current = stream;
       setLocalStream(stream);
-      setCameraActive(wantsVideo);
+      setCameraActive(true);
       setMicActive(true);
       resolvedStream = stream;
       return stream;
     } catch (err) {
-      console.warn("Optimized media stream denied, attempting standard video+audio fallback...", err);
+      console.warn("High-quality media stream denied, attempting standard video+audio fallback...", err);
       try {
-        const constraintsFallback: MediaStreamConstraints = wantsVideo ? {
-          video: {
-            width: { ideal: 640, max: 640 },
-            height: { ideal: 360, max: 360 },
-            frameRate: { ideal: 15, max: 15 },
-            facingMode: "user"
-          },
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        } : {
-          video: false,
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        };
-
-        const stream = await navigator.mediaDevices.getUserMedia(constraintsFallback);
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localStreamRef.current = stream;
         setLocalStream(stream);
-        setCameraActive(wantsVideo);
+        setCameraActive(true);
         setMicActive(true);
         resolvedStream = stream;
         return stream;
       } catch (err15) {
-        console.warn("Standard fallback failed, attempting video-only/voice fallbacks...", err15);
+        console.warn("Standard video+audio fallback failed, attempting video-only/voice fallbacks...", err15);
         try {
-          if (wantsVideo) {
-            // Fallback 1: Video-only if microphone is blocked or missing (extremely loose constraint for absolute compatibility)
-            const stream = await navigator.mediaDevices.getUserMedia({
-              video: true,
-              audio: false
-            });
-            localStreamRef.current = stream;
-            setLocalStream(stream);
-            setCameraActive(true);
-            setMicActive(false);
-            resolvedStream = stream;
-            return stream;
-          } else {
-            throw new Error("Voice only mode has no video fallback.");
-          }
+          // Fallback 1: Video-only if microphone is blocked or missing
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          localStreamRef.current = stream;
+          setLocalStream(stream);
+          setCameraActive(true);
+          setMicActive(false);
+          resolvedStream = stream;
+          return stream;
         } catch (err2) {
           try {
-            // Fallback 2: Audio-only if webcam is blocked or missing (or always for voice)
-            const stream = await navigator.mediaDevices.getUserMedia({
-              video: false,
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-              }
-            });
+            // Fallback 2: Audio-only if webcam is blocked or missing
+            const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
             localStreamRef.current = stream;
             setLocalStream(stream);
             setCameraActive(false);
@@ -971,44 +637,17 @@ export default function App() {
     const senders = pc.getSenders();
 
     for (const track of stream.getTracks()) {
-      // Find matching transceiver by kind
-      const transceivers = pc.getTransceivers();
-      const matchingTransceiver = transceivers.find(
-        (t) => (t.sender && t.sender.track === track) ||
-               (t.receiver && t.receiver.track && t.receiver.track.kind === track.kind) ||
-               (t.sender && !t.sender.track && t.receiver && t.receiver.track && t.receiver.track.kind === track.kind) ||
-               (t.mid === null && t.direction === "recvonly")
-      );
-
-      if (matchingTransceiver && matchingTransceiver.sender) {
-        if (matchingTransceiver.sender.track !== track) {
-          console.log(`[WebRTC] Reusing existing transceiver to attach local track of kind "${track.kind}".`);
-          try {
-            await matchingTransceiver.sender.replaceTrack(track);
-            matchingTransceiver.direction = "sendrecv";
-            changed = true;
-          } catch (replaceErr) {
-            console.warn(`[WebRTC] Error calling replaceTrack for kind "${track.kind}":`, replaceErr);
-          }
-        } else if (matchingTransceiver.direction !== "sendrecv") {
-          matchingTransceiver.direction = "sendrecv";
+      const alreadyAdded = senders.some((s) => s.track === track);
+      if (!alreadyAdded) {
+        console.log(`[WebRTC] Attaching track ${track.kind} of local stream to existing PeerConnection.`);
+        try {
+          pc.addTrack(track, stream);
           changed = true;
-        }
-      } else {
-        const alreadyAdded = senders.some((s) => s.track === track || (s.track && s.track.id === track.id));
-        if (!alreadyAdded) {
-          console.log(`[WebRTC] Attaching track ${track.kind} of local stream to existing PeerConnection via addTrack.`);
-          try {
-            pc.addTrack(track, stream);
-            changed = true;
-          } catch (addError) {
-            console.warn("[WebRTC] Error adding track dynamically:", addError);
-          }
+        } catch (addError) {
+          console.warn("[WebRTC] Error adding track dynamically:", addError);
         }
       }
     }
-
-    applyWebRTCOptimizations(pc);
 
     if (changed) {
       await renegotiatePeerConnection();
@@ -1023,16 +662,10 @@ export default function App() {
       try {
         console.log("[WebRTC] Creating renegotiation SDP offer...");
         const offer = await pc.createOffer();
-        const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
-        const localOfferSpec = new RTCSessionDescription({
-          type: "offer",
-          sdp: optimizedSdp
-        });
-        await pc.setLocalDescription(localOfferSpec);
-        
+        await pc.setLocalDescription(offer);
         socketRef.current?.emit("webrtc-signal", {
           to: partnerIdRef.current,
-          signal: { offer: { type: "offer", sdp: optimizedSdp } }
+          signal: { offer }
         });
       } catch (err) {
         console.error("[WebRTC] Failed to create renegotiation offer:", err);
@@ -1059,164 +692,9 @@ export default function App() {
     setMicActive(false);
   };
 
-  // Enforces sender-level transmission policies: 300 kbps limitations, adaptive degradation, and audio-first prioritizing
-  const applyWebRTCOptimizations = (pc: RTCPeerConnection) => {
-    try {
-      console.log("[WebRTC Optimizations] Securing connection transmission settings...");
-      
-      const conn = (navigator as any).connection;
-      const isWeakNetwork = !!(conn && (conn.saveData || conn.effectiveType === "2g" || conn.effectiveType === "3g" || conn.effectiveType === "slow-2g"));
-      const maxVideoBitrate = isWeakNetwork ? 150 * 1000 : 300 * 1000; // Limit video to 150 kbps on weak networks, otherwise 300 kbps max
-      
-      // 1. Prioritize audio over video and limit video bitrate & framerate via RTCRtpSender.setParameters
-      pc.getSenders().forEach((sender) => {
-        if (!sender.track) return;
-        
-        try {
-          const params = sender.getParameters();
-          // Initialize encodings if missing/empty
-          if (!params.encodings || params.encodings.length === 0) {
-            params.encodings = [{}];
-          }
-
-          if (sender.track.kind === "video") {
-            params.encodings.forEach((encoding) => {
-              // Limit video bitrate to 300 kbps (or lower on weak networks)
-              encoding.maxBitrate = maxVideoBitrate;
-              
-              // Reduce frame rate to 15 fps
-              encoding.maxFramerate = 15;
-              
-              // Prioritize audio over video (assign low priority/low network-priority to video)
-              encoding.priority = "low";
-              encoding.networkPriority = "low";
-              
-              // Enable adaptive degradation / scaling under congestion
-              encoding.scaleResolutionDownBy = 1.0; 
-            });
-            
-            sender.setParameters(params)
-              .then(() => console.log(`[WebRTC Optimizations] Video parameters applied: ${maxVideoBitrate / 1000} kbps max, 15 fps max, low priority.`))
-              .catch((err) => console.warn("[WebRTC Optimizations] Failed to set video sender parameters:", err));
-              
-          } else if (sender.track.kind === "audio") {
-            params.encodings.forEach((encoding) => {
-              // Prioritize audio over video (assign high priority/high network-priority to audio)
-              encoding.priority = "high";
-              encoding.networkPriority = "high";
-            });
-            
-            sender.setParameters(params)
-              .then(() => console.log("[WebRTC Optimizations] Audio parameters applied: high priority, packet-loss resilient."))
-              .catch((err) => console.warn("[WebRTC Optimizations] Failed to set audio sender parameters:", err));
-          }
-        } catch (paramErr) {
-          console.warn("[WebRTC Optimizations] Error modifying sender parameters:", paramErr);
-        }
-      });
-
-      // 2. Adjust transceiver degradationPreference for adaptive resolution scaling on congested/weak links
-      pc.getTransceivers().forEach((transceiver) => {
-        if (transceiver.sender && transceiver.sender.track && transceiver.sender.track.kind === "video") {
-          try {
-            // "maintain-framerate" automatically drops video quality (resolution) on weak/congested networks to preserve smooth frames & prioritize audio
-            (transceiver as any).degradationPreference = "maintain-framerate";
-            console.log("[WebRTC Optimizations] Video transceiver degradation preference set to 'maintain-framerate'.");
-          } catch (degradeErr) {
-            console.warn("[WebRTC Optimizations] Failed to set transceiver.degradationPreference:", degradeErr);
-          }
-        }
-      });
-    } catch (err) {
-      console.error("[WebRTC Optimizations] Error running peer optimizations:", err);
-    }
-  };
-
-  // SDP bandwidth/bitrate modifier to lock in fluid low-latency video and noise-cancelled mono voice
-  const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 300; // Limit video bitrate to 300 Kbps max to prevent bufferbloat/congestion
-    const audioBitrateKbps = 24;  // 24 Kbps allows robust Opus mono with high FEC capability to preserve voice quality under severe packet loss
-
-    let lines = sdp.split("\r\n");
-    let modifiedLines: string[] = [];
-    let isVideoSection = false;
-    let isAudioSection = false;
-
-    // Find the Opus payload type format lines to inject premium quality parameters
-    let opusPayloadType: string | null = null;
-    for (let line of lines) {
-      if (line.startsWith("a=rtpmap:") && line.toLowerCase().includes("opus/48000")) {
-        const match = line.match(/a=rtpmap:(\d+)\s+opus/i);
-        if (match) {
-          opusPayloadType = match[1];
-        }
-      }
-    }
-
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i];
-
-      // Detect media section transitions
-      if (line.startsWith("m=video")) {
-        isVideoSection = true;
-        isAudioSection = false;
-      } else if (line.startsWith("m=audio")) {
-        isVideoSection = false;
-        isAudioSection = true;
-      } else if (line.startsWith("m=")) {
-        isVideoSection = false;
-        isAudioSection = false;
-      }
-
-      // Check if there are pre-existing bandwidth definitions inside this section and skip them
-      if (isVideoSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:"))) {
-        continue;
-      }
-      if (isAudioSection && (line.startsWith("b=AS:") || line.startsWith("b=TIAS:") || line.startsWith("a=ptime:") || line.startsWith("a=maxptime:"))) {
-        continue;
-      }
-
-      // Overwrite Opus media format parameters for seamless, lowest-latency mono voice and standard echo cancellation
-      if (isAudioSection && opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) {
-        // Set stereo=0 and sprop-stereo=0. This lets browser echo-cancellation (AEC) map nicely to the microphone
-        // Safely parse and append values without destroying any other browser parameters
-        let originalParams = line.substring(`a=fmtp:${opusPayloadType} `.length).trim();
-        const paramsToClean = ["stereo", "sprop-stereo", "maxaveragebitrate", "useinbandfec", "usedtx"];
-        let parts = originalParams ? originalParams.split(";").map(p => p.trim()).filter(p => {
-          const key = p.split("=")[0].trim().toLowerCase();
-          return !paramsToClean.includes(key);
-        }) : [];
-        parts.push("stereo=0");
-        parts.push("sprop-stereo=0");
-        parts.push("useinbandfec=1");
-        parts.push("usedtx=1");
-        parts.push(`maxaveragebitrate=${audioBitrateKbps * 1000}`);
-        line = `a=fmtp:${opusPayloadType} ${parts.join("; ")}`;
-      }
-
-      modifiedLines.push(line);
-
-      // Inject custom bandwidth constraints directly under the media declaration lines
-      if (line.startsWith("m=video")) {
-        modifiedLines.push(`b=AS:${videoBitrateKbps}`);
-        modifiedLines.push(`b=TIAS:${videoBitrateKbps * 1000}`);
-      }
-      if (line.startsWith("m=audio")) {
-        modifiedLines.push(`b=AS:${audioBitrateKbps}`);
-        modifiedLines.push(`b=TIAS:${audioBitrateKbps * 1000}`);
-        modifiedLines.push("a=ptime:20");
-        modifiedLines.push("a=maxptime:20");
-      }
-    }
-
-    return modifiedLines.join("\r\n");
-  };
-
   // WebRTC Peer connection signaling & establishment
   const initiateWebRTCPeer = async (peerSocketId: string, isInitiator: boolean) => {
-    const isSamePartner = (peerSocketId === partnerIdRef.current);
-
-    // Clean existing peer connection
+    // Clean existing peer connection and remote stream without resetting the partner ID
     if (pcRef.current) {
       try {
         pcRef.current.close();
@@ -1225,42 +703,33 @@ export default function App() {
       }
       pcRef.current = null;
     }
-
-    // If we're pairing with a completely new stranger, perform a full reset.
-    // Otherwise, preserve the remote stream and audio element to survive reconnects seamlessly.
-    if (!isSamePartner) {
-      safeSetRemoteStream(null);
-      destroyRemoteAudioElement();
-    }
-
+    setRemoteStream(null);
     signalProcessingQueueRef.current = [];
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
 
     // Configure STUN/TURN servers. Support dynamic production TURN configuration via environment variables
-    const customIceServers: RTCIceServer[] = iceServersRef.current.length > 0 
-      ? [...iceServersRef.current]
-      : [
-          // 1. Standard STUN Servers (highly reliable Google infrastructure)
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-          { urls: "stun:stun2.l.google.com:19302" },
-          { urls: "stun:openrelay.metered.ca:80" },
+    const customIceServers: RTCIceServer[] = [
+      // 1. Standard STUN Servers (highly reliable Google infrastructure)
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
 
-          // 2. High-performance Secure TURN (turns) on port 80 and 443 over TCP & UDP.
-          {
-            urls: [
-              "turn:openrelay.metered.ca:80",
-              "turn:openrelay.metered.ca:443",
-              "turn:openrelay.metered.ca:443?transport=tcp",
-              "turns:openrelay.metered.ca:443?transport=tcp",
-              "turn:openrelay.metered.ca:3478?transport=udp",
-              "turn:openrelay.metered.ca:3478?transport=tcp"
-            ],
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          }
-        ];
+      // 2. High-performance Secure TURN (turns) on port 443 over TCP.
+      // Acts as fall-back standard HTTPS, guaranteeing cellular/corporate firewall bypass.
+      {
+        urls: "turns:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
+
+      // 3. Fallback TURN (turn) on standard WebRTC UDP port 3478
+      {
+        urls: "turn:openrelay.metered.ca:3478?transport=udp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      }
+    ];
 
     const envTurnUrl = (import.meta as any).env.VITE_TURN_URL;
     const envTurnUser = (import.meta as any).env.VITE_TURN_USERNAME;
@@ -1276,11 +745,13 @@ export default function App() {
       
       // Place at the very top of iceServers array to prioritize it
       customIceServers.unshift(customSvr);
+    } else {
+      console.warn("[WebRTC] No dedicated VITE_TURN_URL configured. Falling back to public metered.ca open relay credentials.");
     }
 
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
-      iceTransportPolicy: "all"
+      iceTransportPolicy: "relay"
     });
 
     pcRef.current = pc;
@@ -1314,8 +785,6 @@ export default function App() {
       setWebrtcStatus(pc.iceConnectionState);
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         logSelectedCandidatePair();
-        stopAndClearFallbackAudio();
-        setRemoteVideoFrame(null); // Clear fallback frame
       }
       if (pc.iceConnectionState === "failed") {
         console.warn("[ICE] ICE Connection failed. Triggering ICE restart...");
@@ -1327,12 +796,6 @@ export default function App() {
       setWebrtcStatus(pc.connectionState);
       if (pc.connectionState === "connected") {
         logSelectedCandidatePair();
-        stopAndClearFallbackAudio();
-        setRemoteVideoFrame(null); // Clear fallback frame
-      }
-      if (pc.connectionState === "failed") {
-        console.warn("[WEBRTC] PeerConnection failed. Triggering ICE restart...");
-        handleIceRestart(peerSocketId, isInitiator);
       }
     };
     pc.onsignalingstatechange = () => {
@@ -1352,15 +815,11 @@ export default function App() {
       );
     };
 
-    // Attach local stream tracks to WebRTC pipe safely
+    // Attach local stream tracks to WebRTC pipe
     const currentLocalStream = localStreamRef.current;
     if (currentLocalStream && currentLocalStream.getTracks().length > 0) {
-      const senders = pc.getSenders();
       currentLocalStream.getTracks().forEach((track) => {
-        const alreadyAdded = senders.some((s) => s.track === track || (s.track && s.track.id === track.id) || (s.track && s.track.kind === track.kind));
-        if (!alreadyAdded) {
-          pc.addTrack(track, currentLocalStream);
-        }
+        pc.addTrack(track, currentLocalStream);
       });
     } else {
       // If we don't have local tracks, explicitly declare direction to receive audio and video.
@@ -1368,68 +827,52 @@ export default function App() {
       // when the local user's camera / microphone access is disabled or not yet resolved.
       try {
         pc.addTransceiver("audio", { direction: "recvonly" });
-        if (modeRef.current === "video") {
-          pc.addTransceiver("video", { direction: "recvonly" });
-        }
+        pc.addTransceiver("video", { direction: "recvonly" });
       } catch (err) {
         console.warn("[WEBRTC] Failed to add recvonly transceivers:", err);
       }
+      addSystemMessage("Joining without active camera feed.");
     }
-
-    // Apply high-availability physical stream transmission and prioritization policies
-    applyWebRTCOptimizations(pc);
 
     // Handle receiving incoming track with high-availability track merging
     pc.ontrack = (event) => {
-      console.log(`[WEBRTC] ontrack callback triggered: Kind="${event.track.kind}" | ID="${event.track.id}"`);
+      console.log(`[WEBRTC] ontrack callback triggered: Kind="${event.track.kind}" | ID="${event.track.id}" | StreamsLength=${event.streams?.length || 0}`);
       
-      let currentStream = remoteStreamRef.current;
-      if (!currentStream) {
-        // Create a single persistent MediaStream container for this partner session
-        console.log("[WEBRTC] Initializing new persistent remote MediaStream container.");
-        currentStream = new MediaStream();
-        safeSetRemoteStream(currentStream);
-      }
-      
-      const tracks = currentStream.getTracks();
-      const alreadyHasTrack = tracks.some((t) => t.id === event.track.id);
-      
-      if (!alreadyHasTrack) {
-        // If we have any existing tracks of the same kind, remove them so the new one takes full priority
-        tracks.forEach((t) => {
-          if (t.kind === event.track.kind && t.id !== event.track.id) {
-            console.log(`[WEBRTC] Stopping and replacing older remote track: kind="${t.kind}" | id="${t.id}"`);
-            currentStream?.removeTrack(t);
-            try {
-              t.stop();
-            } catch (err) {
-              console.warn("[WEBRTC] Failed to stop older track:", err);
+      if (event.streams && event.streams[0]) {
+        const inboundStream = event.streams[0];
+        // Create a new MediaStream wrapper to force reference change in React state.
+        // This guarantees that when a second track (e.g., video track after audio track) is added,
+        // React immediately updates component bindings instead of short-circuiting on equal object referential checks.
+        setRemoteStream(new MediaStream(inboundStream.getTracks()));
+        setRemoteStreamVersion((v) => v + 1);
+
+        // Bind listeners to trigger updates if the browser adds another track (e.g. video following audio) dynamically
+        inboundStream.onaddtrack = (trackEvent) => {
+          console.log(`[WEBRTC] Dynamic track added to active stranger stream: kind="${trackEvent.track.kind}"`);
+          setRemoteStream(new MediaStream(inboundStream.getTracks()));
+          setRemoteStreamVersion((v) => v + 1);
+        };
+        inboundStream.onremovetrack = () => {
+          setRemoteStream(new MediaStream(inboundStream.getTracks()));
+          setRemoteStreamVersion((v) => v + 1);
+        };
+      } else {
+        // Fallback for custom clients that send raw tracks without stream containers
+        setRemoteStream((prev) => {
+          if (!prev) {
+            const nextStream = new MediaStream([event.track]);
+            setRemoteStreamVersion((v) => v + 1);
+            return nextStream;
+          } else {
+            if (!prev.getTracks().some((t) => t.id === event.track.id)) {
+              prev.addTrack(event.track);
             }
+            const nextStream = new MediaStream(prev.getTracks());
+            setRemoteStreamVersion((v) => v + 1);
+            return nextStream;
           }
         });
-
-        console.log(`[WEBRTC] Attaching remote track precisely once: kind="${event.track.kind}" | id="${event.track.id}"`);
-        currentStream.addTrack(event.track);
-        setRemoteStreamVersion((v) => v + 1);
-        
-        if (event.track.kind === "audio") {
-          playRemoteAudioStream(currentStream);
-        }
-      } else {
-        console.log(`[WEBRTC] Track of kind="${event.track.kind}" (id: "${event.track.id}") is already present. Preserving track.`);
       }
-
-      // Ensure that track ending or mute state changes don't detach or unmount the video player.
-      event.track.onmute = () => {
-        console.log(`[WEBRTC] Track onmute: kind="${event.track.kind}" | id="${event.track.id}". Preserving track attachments and elements.`);
-      };
-      event.track.onunmute = () => {
-        console.log(`[WEBRTC] Track onunmute: kind="${event.track.kind}" | id="${event.track.id}". track live again.`);
-        setRemoteStreamVersion((v) => v + 1);
-      };
-      event.track.onended = () => {
-        console.log(`[WEBRTC] Track onended callback: kind="${event.track.kind}" | id="${event.track.id}". Keeping element mounted.`);
-      };
     };
 
     // Forward gathered ICE candidates to paired stranger
@@ -1470,22 +913,13 @@ export default function App() {
         });
         console.log("[SIGNALING] Initiator: createOffer succeeded:", offer);
         
-        console.log("[SIGNALING] Initiator: Calling setLocalDescription with optimized SDP bitrates");
-        const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
-        const localOfferSpec = new RTCSessionDescription({
-          type: "offer",
-          sdp: optimizedSdp
-        });
-        await pc.setLocalDescription(localOfferSpec);
+        console.log("[SIGNALING] Initiator: Calling setLocalDescription");
+        await pc.setLocalDescription(offer);
         console.log("[SIGNALING] Initiator: setLocalDescription success");
 
-        const finalOfferToSend = {
-          type: "offer",
-          sdp: optimizedSdp
-        };
         socketRef.current?.emit("webrtc-signal", {
           to: peerSocketId,
-          signal: { offer: finalOfferToSend }
+          signal: { offer }
         });
       } catch (err) {
         console.error("[SIGNALING] Initiator: Failed to create/set local SDP offer:", err);
@@ -1500,56 +934,17 @@ export default function App() {
     if (isInitiator) {
       try {
         console.log("[WebRTC] Attempting ICE restart...");
-        const offer = await pc.createOffer({
-          iceRestart: true,
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: true
-        });
-        
-        const optimizedSdp = setMediaBitrates(offer.sdp!, 2500, 128);
-        const localRestartOfferSpec = new RTCSessionDescription({
-          type: "offer",
-          sdp: optimizedSdp
-        });
-        await pc.setLocalDescription(localRestartOfferSpec);
-
-        const finalOfferToSend = {
-          type: "offer",
-          sdp: optimizedSdp
-        };
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
         socketRef.current?.emit("webrtc-signal", {
           to: peerSocketId,
-          signal: { offer: finalOfferToSend }
+          signal: { offer }
         });
+        addSystemMessage("Re-routing connection path...");
       } catch (err) {
         console.error("Failed to execute ICE restart offer generation:", err);
       }
     }
-  };
-
-  const destroyRemoteAudioElement = () => {
-    if (remoteAudioElementRef.current) {
-      console.log("[Audio] Destroying previous remote audio element to prevent double-playback echo and delay leakage.");
-      try {
-        remoteAudioElementRef.current.pause();
-        remoteAudioElementRef.current.srcObject = null;
-        remoteAudioElementRef.current.remove();
-      } catch (e) {
-        console.warn("[Audio] Error destroying remote audio element:", e);
-      }
-      remoteAudioElementRef.current = null;
-    }
-  };
-
-  const playRemoteAudioStream = (stream: MediaStream) => {
-    // We now play remote audio directly unmuted inside the VideoPlayer component.
-    // This completely eliminates duplicate playback echo, delay leakage, and browser security autoplay blocks.
-    console.log("[Audio] Remote stream detected. Audio playback is handled unmuted natively by the VideoPlayer component.");
-  };
-
-  const safeSetRemoteStream = (newStream: MediaStream | null) => {
-    remoteStreamRef.current = newStream;
-    setRemoteStream(newStream);
   };
 
   const cleanPeerConnection = () => {
@@ -1561,8 +956,7 @@ export default function App() {
       }
       pcRef.current = null;
     }
-    safeSetRemoteStream(null);
-    destroyRemoteAudioElement();
+    setRemoteStream(null);
     setRemoteVideoFrame(null);
     partnerIdRef.current = null;
     setPartnerId(null);
@@ -1570,7 +964,6 @@ export default function App() {
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
     setWebrtcStatus("idle");
-    stopAndClearFallbackAudio();
   };
 
   // Interest list management
@@ -1598,49 +991,32 @@ export default function App() {
     }
   };
 
-  // Onboarding verification submit
-  const handleOnboardingSubmit = async () => {
-    if (!agreedToTerms || !confirmedAge) {
-      setAgreementError("Please tick both boxes to agree to the terms and confirm you are 18+.");
-      return;
-    }
-    setAgreementError(null);
-    await handleStartMatching(mode);
-  };
-
   // Start search sequence
-  const handleStartMatching = async (overrideMode?: "text" | "voice" | "video") => {
-    const activeMode = overrideMode || mode;
-    if (overrideMode) {
-      setMode(overrideMode);
-    }
-    
+  const handleStartMatching = async () => {
     setMessages([]);
     setStrangerIsTyping(false);
     setCommonInterests([]);
-    safeSetRemoteStream(null);
-    destroyRemoteAudioElement();
+    setRemoteStream(null);
     setAppState("searching");
 
-    trackEvent("join_search", { mode: activeMode, interests_count: interests.length, interests });
+    trackEvent("join_search", { mode, interests_count: interests.length, interests });
 
-    if (interests.length > 0) {
-      addSystemMessage("please wait while we connect to a random stranger based on your interests");
-    } else {
-      addSystemMessage("please wait while we connect you to a random stranger");
-    }
+    addSystemMessage("Routing to connection pool...");
 
-    // Lazy media setup ahead of routing to maintain flow
-    if (activeMode === "video" || activeMode === "voice") {
-      await requestLocalStream(activeMode);
+    // Lazy camera setup ahead of routing to maintain flow
+    if (mode === "video") {
+      addSystemMessage("Booting camera interface...");
+      await requestLocalStream();
     }
 
     // Ping matching handshake to Express Socket.io server
     initSocketConnection();
     socketRef.current?.emit("start-search", {
       interests,
-      mode: activeMode
+      mode
     });
+
+    addSystemMessage("Searching for matching stranger based on interests...");
   };
 
   // Pause matching (cancel current search and remain in idle chat lobby)
@@ -1648,6 +1024,7 @@ export default function App() {
     socketRef.current?.emit("stop-search");
     setAppState("idle");
     cleanPeerConnection();
+    addSystemMessage("Connection paused. You can edit your interests or click Resume/Connect to find a stranger.");
     trackEvent("match_paused", { mode });
   };
 
@@ -1656,13 +1033,7 @@ export default function App() {
     cleanPeerConnection();
     setMessages([]);
     setAppState("searching");
-
-    if (interests.length > 0) {
-      addSystemMessage("please wait while we connect to a random stranger based on your interests");
-    } else {
-      addSystemMessage("please wait while we connect you to a random stranger");
-    }
-
+    addSystemMessage("Looking for a new stranger...");
     trackEvent("match_skipped", { mode, interests_count: interests.length });
 
     socketRef.current?.emit("start-search", {
@@ -1734,6 +1105,7 @@ export default function App() {
   const handleRetryWebRTC = async () => {
     if (partnerIdRef.current) {
       console.log("[WebRTC] Manually retrying WebRTC connection with partner:", partnerIdRef.current);
+      addSystemMessage("Re-negotiating peer association tracks...");
       setWebrtcStatus("connecting");
       await initiateWebRTCPeer(partnerIdRef.current, isInitiatorRef.current);
       
@@ -1769,7 +1141,7 @@ export default function App() {
           className="flex items-center gap-3 cursor-pointer hover:opacity-90 active:scale-[0.99] transition-all select-none shrink-0 text-slate-900 hover:text-slate-900 decoration-none no-underline"
           title="Return to home page"
         >
-          <div className="h-9 w-9 bg-gradient-to-tr from-sky-400 via-indigo-500 to-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold tracking-tighter text-lg shadow-md relative overflow-hidden transition-transform duration-300 hover:rotate-[8deg]">
+          <div className="h-9 w-9 bg-linear-to-tr from-sky-400 via-indigo-500 to-emerald-400 rounded-xl flex items-center justify-center text-white font-extrabold tracking-tighter text-lg shadow-md relative overflow-hidden">
             <span className="rotate-180 inline-block transform scale-110">Ω</span>
             <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-emerald-300 rounded-full animate-ping" />
             <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
@@ -1822,190 +1194,168 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.25, ease: "easeOut" }}
-              className="flex-grow flex-1 w-full max-w-[1300px] mx-auto flex flex-row items-center justify-center py-8 px-4 gap-6 relative"
+              className="flex-grow flex-1 w-full max-w-[1300px] mx-auto flex flex-row items-center justify-center py-8 px-4 gap-6"
             >
-              {/* Modern Ambient Glowing Blobs to make the color theme pop and feel lively */}
-              <div className="absolute inset-0 overflow-hidden pointer-events-none -z-10">
-                <div className="absolute -top-40 left-1/4 w-[480px] h-[480px] bg-indigo-500/10 rounded-full blur-[110px]" />
-                <div className="absolute top-1/2 -right-20 w-[420px] h-[420px] bg-sky-400/12 rounded-full blur-[100px]" />
-                <div className="absolute -bottom-40 left-10 w-[380px] h-[380px] bg-rose-400/8 rounded-full blur-[95px]" />
-              </div>
-
               {/* Left Skyscraper banner */}
               <div className="hidden xl:flex fixed left-5 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-slate-200 rounded-2xl bg-white shadow-md text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
-              </div>              {/* Center Dashboard */}
-              <div className="flex-grow max-w-2xl w-full mx-auto relative z-10 flex flex-col space-y-4 items-center py-2 sm:py-3">
+              </div>
+
+              {/* Center Dashboard */}
+              <div className="flex-grow max-w-4xl grid md:grid-cols-5 gap-6">
                 
-                {/* Hero Section: Brand Intro & Info (Super compact & clean) */}
-                <div className="w-full text-center space-y-2 px-2">
-                  <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-indigo-50 to-sky-50 border border-indigo-100/70 rounded-full px-3 py-0.5 text-[10px] text-indigo-700 font-bold shadow-2xs animate-pulse">
-                    <Sparkles className="w-3 h-3 text-indigo-500" /> True Anonymous Connections
+                {/* Left Columns - Welcome and Preferences configs */}
+                <div className="md:col-span-3 space-y-6">
+                  <div className="space-y-3">
+                    <div className="inline-flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-xs text-indigo-700 font-semibold">
+                      <Sparkles className="w-3.5 h-3.5" /> True Anonymous Connections
+                    </div>
+                    <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 leading-[1.12]">
+                      Talk to strangers, <span className="text-linear bg-linear-to-r from-indigo-600 to-sky-500 bg-clip-text text-transparent">completely free.</span>
+                    </h2>
+                    <p className="text-sm text-slate-500 leading-relaxed max-w-lg">
+                      Umegle pairs you instantly with peer companions worldwide. Filter matches by adding custom tag keywords to search for shared interests.
+                    </p>
                   </div>
-                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 leading-tight">
-                    Talk to strangers, <span className="text-linear bg-gradient-to-r from-indigo-600 via-indigo-700 to-sky-500 bg-clip-text text-transparent">completely free.</span>
-                  </h2>
-                  <p className="text-xs text-slate-505 leading-relaxed max-w-lg mx-auto">
-                    Pairs you instantly with random companions worldwide. Filter matches securely by adding search keywords.
-                  </p>
+
+                  {/* Comma interests tag collector */}
+                  <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Shared Interests (Optional)</label>
+                      <p className="text-[11px] text-slate-450 leading-relaxed">Type interest categories and press <kbd className="font-semibold bg-slate-50 px-1 py-0.5 rounded border border-slate-200">Enter</kbd> or use comma separators.</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 min-h-[44px] p-2 bg-slate-50 rounded-xl border border-slate-200/60 focus-within:ring-2 focus-within:ring-indigo-600/20 focus-within:border-indigo-600 transition-all">
+                      {interests.map((tag) => (
+                        <span key={tag} className="inline-flex items-center gap-1 bg-indigo-600 text-white pl-2.5 pr-1.5 py-1 rounded-lg text-xs font-semibold shadow-2xs">
+                          {tag}
+                          <button onClick={() => removeInterest(tag)} className="p-0.5 text-indigo-300 hover:text-white hover:bg-indigo-500 rounded-md transition-colors">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        id="input-interests-tag"
+                        type="text"
+                        placeholder={interests.length ? "Add more..." : "e.g., music, coding, gaming..."}
+                        value={interestInput}
+                        onChange={(e) => setInterestInput(e.target.value)}
+                        onKeyDown={handleInterestKeyDown}
+                        className="flex-1 bg-transparent border-0 outline-hidden min-w-[120px] text-xs font-medium text-slate-800"
+                      />
+                    </div>
+
+                    {/* Pre-seeded popular suggestions */}
+                    <div className="space-y-2">
+                      <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Popular Categories:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {POPULAR_SUGGESTIONS.map((item) => (
+                          <button
+                            key={item}
+                            onClick={() => addInterest(item)}
+                            disabled={interests.includes(item)}
+                            className="bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-40 disabled:hover:bg-white border border-slate-200 px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                          >
+                            + {item}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Interactive Pairing Box - Sits below the Hero, super-compact for all device screens */}
-                <div className="w-full bg-white/95 backdrop-blur-md rounded-xl p-4 sm:p-5 border border-slate-205 shadow-xl shadow-slate-100/40 flex flex-col justify-center space-y-3.5">
-                    
-                    {/* Part 1: Choose Matching Mode (Highly elegant iOS-style responsive Segmented Control) */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-left">1. Select Chat Mode:</span>
-                        <span className="text-[10px] font-semibold text-indigo-600 tracking-wide bg-indigo-50 px-2 py-0.5 rounded-md capitalize">
-                          {mode} mode
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200">
+                {/* Right Columns - Mode Selection card and Go Button */}
+                <div className="md:col-span-2 flex flex-col justify-between space-y-4">
+                  <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex-1 flex flex-col justify-between space-y-6">
+                    <div className="space-y-3">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block">Choose Matching Mode</span>
+                      
+                      <div className="space-y-3">
                         {/* Option 1: Text */}
-                        <button
+                        <div 
                           id="mode-option-text"
-                          type="button"
-                          onClick={() => {
-                            setMode("text");
-                            setAgreementError(null);
-                          }}
-                          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all select-none cursor-pointer ${
+                          onClick={() => setMode("text")}
+                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3.5 select-none ${
                             mode === "text" 
-                              ? "bg-indigo-600 text-white shadow-xs" 
-                              : "text-slate-600 hover:text-slate-800 hover:bg-slate-150/50"
+                              ? "border-indigo-600 bg-indigo-50/20" 
+                              : "border-slate-100 hover:border-slate-200 bg-slate-50/50"
                           }`}
                         >
-                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-                          <span>Text</span>
-                        </button>
-                        
-                        {/* Option 2: Voice */}
-                        <button
-                          id="mode-option-voice"
-                          type="button"
-                          onClick={() => {
-                            setMode("voice");
-                            setAgreementError(null);
-                          }}
-                          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all select-none cursor-pointer ${
-                            mode === "voice" 
-                              ? "bg-indigo-600 text-white shadow-xs" 
-                              : "text-slate-600 hover:text-slate-800 hover:bg-slate-150/50"
-                          }`}
-                        >
-                          <Volume2 className="w-3.5 h-3.5 shrink-0" />
-                          <span>Voice</span>
-                        </button>
+                          <div className={`p-2.5 rounded-lg shrink-0 ${mode === "text" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
+                            <MessageSquare className="w-5 h-5" />
+                          </div>
+                          <div className="space-y-0.5">
+                            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Chat Text Only</h4>
+                            <p className="text-[11px] text-slate-500 leading-normal">Fast, anonymous texting matches. Optimized for tags and standard speed chats.</p>
+                          </div>
+                        </div>
 
-                        {/* Option 3: Webcam */}
-                        <button
+                        {/* Option 2: Video */}
+                        <div 
                           id="mode-option-video"
-                          type="button"
-                          onClick={() => {
-                            setMode("video");
-                            setAgreementError(null);
-                          }}
-                          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all select-none cursor-pointer ${
+                          onClick={() => setMode("video")}
+                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col gap-3 select-none ${
                             mode === "video" 
-                              ? "bg-indigo-600 text-white shadow-xs" 
-                              : "text-slate-600 hover:text-slate-800 hover:bg-slate-150/50"
+                              ? "border-indigo-600 bg-indigo-50/20" 
+                              : "border-slate-100 hover:border-slate-200 bg-slate-50/50"
                           }`}
                         >
-                          <Video className="w-3.5 h-3.5 shrink-0" />
-                          <span>Webcam</span>
-                        </button>
+                          <div className="flex items-start gap-3.5">
+                            <div className={`p-2.5 rounded-lg shrink-0 ${mode === "video" ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`}>
+                              <Video className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Webcam Video & Voice</h4>
+                              <p className="text-[11px] text-slate-500 leading-normal">Enable webcam audio & video dynamically with high quality WebRTC tunnels.</p>
+                            </div>
+                          </div>
+                          {isInsideIframe && (
+                            <div className="bg-amber-500/10 border border-amber-500/25 px-3 py-2 rounded-lg text-[10px] text-amber-700 leading-relaxed font-bold">
+                              ⚠️ Sandbox restriction detected. Real-time video/audio chat requires visiting this app directly in a full secure browser tab.
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-500 font-semibold px-1 mt-1 leading-normal text-left transition-all duration-200">
-                        {mode === "text" && "📋 Secure, anonymous text chat with matched strangers."}
-                        {mode === "voice" && "🎙️ Real-time high quality voice call with instant connection."}
-                        {mode === "video" && "📹 Live peer-to-peer webcam streaming. Please remain safe and respectful."}
-                      </p>
                     </div>
 
-                    {/* Part 2: Shared Interests tag insertion controls */}
-                    <div className="space-y-1.5 text-left">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">2. Add Interests (Optional):</span>
-                        {interests.length > 0 && (
-                          <button 
-                            type="button"
-                            onClick={() => setInterests([])}
-                            className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 cursor-pointer select-none transition-colors"
-                          >
-                            Clear All ({interests.length})
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <div className="flex gap-2 items-stretch">
-                          <div className="flex-1 bg-slate-50/70 hover:bg-slate-100/50 focus-within:bg-white focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 border border-slate-205 rounded-xl p-1.5 transition-all flex flex-wrap gap-1 items-center max-h-[85px] overflow-y-auto">
-                            {interests.map((item) => (
-                              <span
-                                key={item}
-                                className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded-md animate-fade-in shrink-0"
-                              >
-                                <span>{item}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeInterest(item)}
-                                  className="hover:bg-indigo-150 p-0.5 rounded-full text-indigo-500 hover:text-indigo-700 transition-colors cursor-pointer"
-                                >
-                                  <X className="w-2.5 h-2.5" />
-                                </button>
-                              </span>
-                            ))}
-                            <input
-                              type="text"
-                              placeholder={interests.length > 0 ? "Add tag..." : "Type and press Enter (e.g. music, coding)"}
-                              value={interestInput}
-                              onChange={(e) => setInterestInput(e.target.value)}
-                              onKeyDown={handleInterestKeyDown}
-                              className="flex-1 min-w-[120px] bg-transparent border-0 p-0 px-1 text-xs text-slate-850 focus:ring-0 focus:outline-hidden placeholder:text-slate-400 py-1"
-                            />
-                          </div>
+                    {/* Terms & Privacy Agreement checkbox required for onboarding */}
+                    <div id="terms-agreement-row" className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3 shadow-3xs select-none text-left">
+                      <div className="flex items-start gap-2.5">
+                        <input
+                          id="checkbox-terms"
+                          type="checkbox"
+                          checked={agreedToTerms}
+                          onChange={(e) => setAgreedToTerms(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all cursor-pointer"
+                        />
+                        <label htmlFor="checkbox-terms" className="text-xs text-slate-600 leading-normal font-semibold cursor-pointer">
+                          I confirm that I am 18+ and agree to the{" "}
                           <button
                             type="button"
-                            onClick={() => addInterest(interestInput)}
-                            className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition-all flex items-center justify-center gap-1 shrink-0 cursor-pointer shadow-3xs"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Add</span>
-                          </button>
-                        </div>
-                        {interests.length === 0 && (
-                          <p className="text-[10px] text-slate-400 italic font-medium leading-normal px-1">No tags added. Matching random strangers.</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Part 3: Regulatory safety agreement checkboxes */}
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-[10.5px] text-slate-600 flex flex-col space-y-2 select-none text-left">
-                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
-                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                        <span>3. Safety & Agreement:</span>
-                      </div>
-                      
-                      <div className="flex flex-col space-y-1.5">
-                        <label className="flex items-start gap-2 cursor-pointer hover:text-slate-900 transition-colors select-none">
-                          <input
-                            type="checkbox"
-                            checked={confirmedAge && agreedToTerms}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setConfirmedAge(checked);
-                              setAgreedToTerms(checked);
-                              if (checked) setAgreementError(null);
+                            onClick={() => {
+                              setShowTermsDetail(!showTermsDetail);
+                              setShowPrivacyDetail(false);
                             }}
-                            className="mt-0.5 rounded-xs border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer accent-indigo-600 shrink-0"
-                          />
-                          <span className="leading-tight font-medium text-slate-650">
-                            I am <span className="font-bold text-slate-800">18+ years of age</span> and accept the <span className="text-indigo-600 hover:underline font-bold" onClick={(e) => { e.preventDefault(); setShowTermsDetail(!showTermsDetail); }}>Terms of Service</span> and <span className="text-indigo-600 hover:underline font-bold" onClick={(e) => { e.preventDefault(); setShowPrivacyDetail(!showPrivacyDetail); }}>Privacy Policy</span>.
-                          </span>
+                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
+                          >
+                            Terms of Use
+                          </button>
+                          {" "}and{" "}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowPrivacyDetail(!showPrivacyDetail);
+                              setShowTermsDetail(false);
+                            }}
+                            className="text-indigo-600 hover:underline font-extrabold bg-transparent border-0 cursor-pointer p-0 inline-block focus:outline-hidden"
+                          >
+                            Privacy Policy
+                          </button>
+                          .
                         </label>
                       </div>
 
+                      {/* Expandable Info Cards */}
                       <AnimatePresence mode="wait">
                         {showTermsDetail && (
                           <motion.div
@@ -2013,13 +1363,13 @@ export default function App() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="text-[9.5px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-1 text-left space-y-1 shadow-2xs overflow-hidden"
+                            className="text-[11px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 shadow-2xs overflow-hidden"
                           >
-                            <div className="font-bold text-slate-800">Terms of Use:</div>
-                            <ul className="list-disc list-inside space-y-0.5 pl-1">
-                              <li>Minimum 18 years age requirement.</li>
-                              <li>Sexually explicit, toxic, or offensive behaviors are banned.</li>
-                              <li>Protect your identity; avoid sharing contact details.</li>
+                            <div className="font-bold text-slate-850 text-slate-800">Terms of Use Highlights:</div>
+                            <ul className="list-disc list-inside space-y-1 pl-1">
+                              <li>You must be at least 18 years old to join or use this chat applet.</li>
+                              <li>No sexually explicit content, racial slurs, harassment, or offensive behaviors.</li>
+                              <li>Protect your own identity; avoid sharing sensitive credentials or contact details.</li>
                             </ul>
                           </motion.div>
                         )}
@@ -2030,47 +1380,70 @@ export default function App() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="text-[9.5px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-1 text-left space-y-1 shadow-2xs overflow-hidden"
+                            className="text-[11px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-3 space-y-1.5 shadow-2xs overflow-hidden"
                           >
-                            <div className="font-bold text-slate-800">Privacy Policy:</div>
-                            <ul className="list-disc list-inside space-y-0.5 pl-1">
-                              <li>Streams utilize encrypted peer-to-peer tunnels.</li>
-                              <li>Messages are deleted immediately upon lobby exit.</li>
-                              <li>We do not record, store, or sell content streams.</li>
+                            <div className="font-bold text-slate-850 text-slate-800">Privacy Policy Highlights:</div>
+                            <ul className="list-disc list-inside space-y-1 pl-1">
+                              <li>Connections utilize highly secure peer-to-peer (P2P) signaling pathways.</li>
+                              <li>Text messages are entirely volatile and immediately deleted upon lobby exit.</li>
+                              <li>We do not record, document, log, store, or sell any content streams.</li>
                             </ul>
                           </motion.div>
                         )}
                       </AnimatePresence>
                     </div>
 
-                    {/* Inline alert if conditions aren't met */}
-                    {agreementError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="p-2.5 rounded-lg bg-rose-50 border border-rose-250 text-rose-600 font-bold text-xs text-center flex items-center justify-center gap-1.5"
-                      >
-                        <Info className="w-3.5 h-3.5 shrink-0" />
-                        <span>{agreementError}</span>
-                      </motion.div>
-                    )}
-
-                    {/* Part 4: Start Chatting Connecting primary CTA button */}
+                    {/* Massive matching start trigger button */}
                     <button
-                      id="btn-start-connecting"
-                      type="button"
-                      onClick={handleOnboardingSubmit}
-                      className="w-full relative group bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-extrabold text-sm sm:text-base py-2.5 px-4 rounded-xl transition-all duration-300 shadow-md shadow-indigo-500/15 hover:shadow-indigo-500/25 hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer select-none"
+                      id="btn-start-matching"
+                      onClick={handleStartMatching}
+                      disabled={!agreedToTerms}
+                      className={`w-full h-14 text-white font-extrabold tracking-wide uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                        agreedToTerms
+                          ? "bg-linear-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-805 hover:shadow-lg"
+                          : "bg-slate-300 text-slate-400 cursor-not-allowed shadow-none border border-slate-200"
+                      }`}
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-300 group-hover:scale-120 transition-transform" />
-                      <span>Start Chatting & Connecting</span>
+                      <span>Start Chatting</span>
+                      <Sparkles className="w-4 h-4 text-sky-300" />
                     </button>
+
+                    {isInsideIframe && mode === "video" && (
+                      <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg text-[11px] text-amber-700 leading-normal font-medium text-center space-y-1 mt-1">
+                        <div>
+                          ⚠️ <strong>Environment Notice:</strong> Sandbox frames (like AI Studio previews) restrict custom browser media routing.
+                        </div>
+                        <div>
+                          If video/audio connection fails, please{" "}
+                          <a
+                            href={typeof window !== "undefined" ? window.location.href : "#"}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-indigo-600 hover:underline font-bold"
+                          >
+                            Open in a Secure New Tab ↗
+                          </a>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Concise P2P footnote at the very bottom */}
-                  <p className="text-[10px] text-slate-400 font-medium text-center">
-                    🔒 Chat sessions are fully encrypted P2P. Streams are never cached or stored.
-                  </p>
+                  {/* Safety & Encryption warning card */}
+                  <div className="bg-[#f0f9ff]/80 border border-sky-100 rounded-xl p-4 flex gap-3">
+                    <ShieldCheck className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h5 className="text-xs font-bold text-sky-900 tracking-wide">P2P Encrypted Streams</h5>
+                      <p className="text-[10px] text-sky-700 leading-relaxed">
+                        Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Adsterra Right Column Rectangular Ad Banner */}
+                  <div className="flex flex-col items-center gap-1.5 py-1 text-center select-none shadow-3xs rounded-xl bg-white border border-slate-100 p-2">
+                    <AdContainer idKey="e3b922214b1e162ec763d9f9c81590e1" width={300} height={250} className="rounded-xl border border-slate-100 bg-white shadow-2xs" />
+                  </div>
+                </div>
 
               </div>
 
@@ -2082,12 +1455,12 @@ export default function App() {
           ) : (
             // Active Messaging Sandbox Stage with flanking Skyscraper Ads
             <div className={`flex-grow flex-1 flex flex-row w-full max-w-[1720px] mx-auto h-full min-h-0 overflow-hidden ${
-              mode !== "text" ? "bg-slate-900" : "bg-slate-50"
+              mode === "video" ? "bg-slate-900" : "bg-slate-50"
             }`}>
 
               {/* Left Chat Ad Column */}
-              <div className={`hidden ${mode !== "text" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-r py-3 select-none ${
-                mode !== "text" 
+              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-r py-3 select-none ${
+                mode === "video" 
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
@@ -2103,15 +1476,11 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={mode === "text" || mode === "voice" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-full w-full relative flex flex-col lg:grid lg:grid-cols-2 outline-hidden bg-slate-900 min-h-0 overflow-hidden"}
+                className={mode === "text" ? "flex-grow flex-1 h-full w-full flex flex-col outline-hidden bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-full w-full relative flex flex-col lg:grid lg:grid-cols-2 outline-hidden bg-slate-900 min-h-0 overflow-hidden"}
               >
-                {/* Media pane (left column: custom video feed / compact top voice bar) */}
-                {mode !== "text" && (
-                  <div className={
-                    mode === "voice"
-                      ? "h-[60px] sm:h-[72px] w-full relative flex flex-col shrink-0 min-h-0 z-20 border-b border-violet-900/60 bg-violet-950 shadow-sm"
-                      : "h-[200px] xs:h-[240px] sm:h-[280px] md:h-[320px] lg:h-full w-full relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none border-b border-slate-800/80 flex flex-col shrink-0 min-h-0"
-                  }>
+                {/* Media pane (left column: custom video feed, only shown in video mode!) */}
+                {mode === "video" && (
+                  <div className="h-[200px] xs:h-[240px] sm:h-[280px] md:h-[320px] lg:h-full w-full relative lg:top-auto lg:right-auto lg:z-auto lg:rounded-none lg:border-none lg:shadow-none border-b border-slate-800/80 flex flex-col shrink-0 min-h-0">
                     <VideoPlayer
                       localStream={localStream}
                       remoteStream={remoteStream}
@@ -2131,7 +1500,7 @@ export default function App() {
                 )}
 
                 {/* Chat pane (right column or full width depending on mode) */}
-                <div className={mode === "text" || mode === "voice" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-auto lg:h-full w-full flex flex-col min-h-0 overflow-hidden"}>
+                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-auto lg:h-full w-full flex flex-col min-h-0 overflow-hidden"}>
                   <ChatPanel
                     messages={messages}
                     isSearching={appState === "searching"}
@@ -2153,8 +1522,8 @@ export default function App() {
               </motion.div>
 
               {/* Right Chat Ad Column */}
-              <div className={`hidden ${mode !== "text" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-l py-3 select-none ${
-                mode !== "text" 
+              <div className={`hidden ${mode === "video" ? "2xl:flex" : "xl:flex"} flex-col items-center justify-start gap-2 w-[160px] h-full shrink-0 border-l py-3 select-none ${
+                mode === "video" 
                   ? "bg-slate-950 border-slate-800 text-slate-400" 
                   : "bg-white border-slate-100 text-slate-600"
               }`}>
@@ -2167,7 +1536,6 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
-      <AdManager />
     </div>
   );
 }
