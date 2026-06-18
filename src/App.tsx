@@ -1057,10 +1057,14 @@ export default function App() {
     setMicActive(false);
   };
 
-  // Enforces sender-level transmission policies: 300-500 kbps limitations, adaptive degradation, and audio-first prioritizing
+  // Enforces sender-level transmission policies: 300 kbps limitations, adaptive degradation, and audio-first prioritizing
   const applyWebRTCOptimizations = (pc: RTCPeerConnection) => {
     try {
       console.log("[WebRTC Optimizations] Securing connection transmission settings...");
+      
+      const conn = (navigator as any).connection;
+      const isWeakNetwork = !!(conn && (conn.saveData || conn.effectiveType === "2g" || conn.effectiveType === "3g" || conn.effectiveType === "slow-2g"));
+      const maxVideoBitrate = isWeakNetwork ? 150 * 1000 : 300 * 1000; // Limit video to 150 kbps on weak networks, otherwise 300 kbps max
       
       // 1. Prioritize audio over video and limit video bitrate & framerate via RTCRtpSender.setParameters
       pc.getSenders().forEach((sender) => {
@@ -1075,8 +1079,8 @@ export default function App() {
 
           if (sender.track.kind === "video") {
             params.encodings.forEach((encoding) => {
-              // Limit video bitrate to 300-500 kbps (400 kbps)
-              encoding.maxBitrate = 400 * 1000; // bps
+              // Limit video bitrate to 300 kbps (or lower on weak networks)
+              encoding.maxBitrate = maxVideoBitrate;
               
               // Reduce frame rate to 15 fps
               encoding.maxFramerate = 15;
@@ -1090,7 +1094,7 @@ export default function App() {
             });
             
             sender.setParameters(params)
-              .then(() => console.log("[WebRTC Optimizations] Video parameters applied: 400 kbps max, 15 fps max, low priority."))
+              .then(() => console.log(`[WebRTC Optimizations] Video parameters applied: ${maxVideoBitrate / 1000} kbps max, 15 fps max, low priority.`))
               .catch((err) => console.warn("[WebRTC Optimizations] Failed to set video sender parameters:", err));
               
           } else if (sender.track.kind === "audio") {
@@ -1128,7 +1132,7 @@ export default function App() {
 
   // SDP bandwidth/bitrate modifier to lock in fluid low-latency video and noise-cancelled mono voice
   const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 400; // 400 Kbps limits video bitrate to 300-500 kbps to prevent bufferbloat/congestion
+    const videoBitrateKbps = 300; // Limit video bitrate to 300 Kbps max to prevent bufferbloat/congestion
     const audioBitrateKbps = 24;  // 24 Kbps allows robust Opus mono with high FEC capability to preserve voice quality under severe packet loss
 
     let lines = sdp.split("\r\n");
