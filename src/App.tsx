@@ -1212,7 +1212,9 @@ export default function App() {
 
   // WebRTC Peer connection signaling & establishment
   const initiateWebRTCPeer = async (peerSocketId: string, isInitiator: boolean) => {
-    // Clean existing peer connection and remote stream without resetting the partner ID
+    const isSamePartner = (peerSocketId === partnerIdRef.current);
+
+    // Clean existing peer connection
     if (pcRef.current) {
       try {
         pcRef.current.close();
@@ -1221,8 +1223,14 @@ export default function App() {
       }
       pcRef.current = null;
     }
-    safeSetRemoteStream(null);
-    destroyRemoteAudioElement();
+
+    // If we're pairing with a completely new stranger, perform a full reset.
+    // Otherwise, preserve the remote stream and audio element to survive reconnects seamlessly.
+    if (!isSamePartner) {
+      safeSetRemoteStream(null);
+      destroyRemoteAudioElement();
+    }
+
     signalProcessingQueueRef.current = [];
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
@@ -1370,80 +1378,55 @@ export default function App() {
 
     // Handle receiving incoming track with high-availability track merging
     pc.ontrack = (event) => {
-      console.log(`[WEBRTC] ontrack callback triggered: Kind="${event.track.kind}" | ID="${event.track.id}" | StreamsLength=${event.streams?.length || 0}`);
+      console.log(`[WEBRTC] ontrack callback triggered: Kind="${event.track.kind}" | ID="${event.track.id}"`);
       
-      if (event.streams && event.streams[0]) {
-        const inboundStream = event.streams[0];
-        
-        // Wrap tracks from inboundStream cleanly
-        const inboundTracks = inboundStream.getTracks();
-        const hasAudio = inboundTracks.some((t) => t.kind === "audio");
-        const freshStream = new MediaStream(inboundTracks);
-
-        // Ensure we prevent re-assigning the same stream repeatedly if it matches existing remoteStream's tracks exactly
-        const prev = remoteStreamRef.current;
-        let sameTracks = false;
-        if (prev) {
-          const prevTracks = prev.getTracks();
-          sameTracks = prevTracks.length === inboundTracks.length && 
-                       prevTracks.every((pt) => inboundTracks.some((it) => it.id === pt.id));
-        }
-
-        if (!sameTracks) {
-          console.log("[WEBRTC] Attaching clean remote stream to state.");
-          safeSetRemoteStream(freshStream);
-          setRemoteStreamVersion((v) => v + 1);
-          if (hasAudio) {
-            playRemoteAudioStream(freshStream);
-          }
-        } else {
-          console.log("[WEBRTC] remoteStream tracks already match exactly. Skipping duplicate remote stream attachment.");
-        }
-
-        // Prevent duplicate event listeners
-        inboundStream.onaddtrack = null;
-        inboundStream.onremovetrack = null;
-
-        inboundStream.onaddtrack = (trackEvent) => {
-          console.log(`[WEBRTC] Dynamic track added to active stranger stream: kind="${trackEvent.track.kind}"`);
-          const updatedTracks = inboundStream.getTracks();
-          const updatedStream = new MediaStream(updatedTracks);
-          safeSetRemoteStream(updatedStream);
-          setRemoteStreamVersion((v) => v + 1);
-          if (trackEvent.track.kind === "audio") {
-            playRemoteAudioStream(updatedStream);
-          }
-        };
-        inboundStream.onremovetrack = () => {
-          console.log("[WEBRTC] Dynamic track removed from active stranger stream.");
-          const updatedTracks = inboundStream.getTracks();
-          const updatedStream = new MediaStream(updatedTracks);
-          safeSetRemoteStream(updatedStream);
-          setRemoteStreamVersion((v) => v + 1);
-        };
-      } else {
-        // Fallback for custom clients that send raw tracks without stream containers
-        const prev = remoteStreamRef.current;
-        if (!prev) {
-          const nextStream = new MediaStream([event.track]);
-          safeSetRemoteStream(nextStream);
-          setRemoteStreamVersion((v) => v + 1);
-          if (event.track.kind === "audio") {
-            playRemoteAudioStream(nextStream);
-          }
-        } else {
-          const alreadyHasTrack = prev.getTracks().some((t) => t.id === event.track.id);
-          if (!alreadyHasTrack) {
-            prev.addTrack(event.track);
-            const nextStream = new MediaStream(prev.getTracks());
-            safeSetRemoteStream(nextStream);
-            setRemoteStreamVersion((v) => v + 1);
-            if (event.track.kind === "audio") {
-              playRemoteAudioStream(nextStream);
+      let currentStream = remoteStreamRef.current;
+      if (!currentStream) {
+        // Create a single persistent MediaStream container for this partner session
+        console.log("[WEBRTC] Initializing new persistent remote MediaStream container.");
+        currentStream = new MediaStream();
+        safeSetRemoteStream(currentStream);
+      }
+      
+      const tracks = currentStream.getTracks();
+      const alreadyHasTrack = tracks.some((t) => t.id === event.track.id);
+      
+      if (!alreadyHasTrack) {
+        // If we have any existing tracks of the same kind, remove them so the new one takes full priority
+        tracks.forEach((t) => {
+          if (t.kind === event.track.kind && t.id !== event.track.id) {
+            console.log(`[WEBRTC] Stopping and replacing older remote track: kind="${t.kind}" | id="${t.id}"`);
+            currentStream?.removeTrack(t);
+            try {
+              t.stop();
+            } catch (err) {
+              console.warn("[WEBRTC] Failed to stop older track:", err);
             }
           }
+        });
+
+        console.log(`[WEBRTC] Attaching remote track precisely once: kind="${event.track.kind}" | id="${event.track.id}"`);
+        currentStream.addTrack(event.track);
+        setRemoteStreamVersion((v) => v + 1);
+        
+        if (event.track.kind === "audio") {
+          playRemoteAudioStream(currentStream);
         }
+      } else {
+        console.log(`[WEBRTC] Track of kind="${event.track.kind}" (id: "${event.track.id}") is already present. Preserving track.`);
       }
+
+      // Ensure that track ending or mute state changes don't detach or unmount the video player.
+      event.track.onmute = () => {
+        console.log(`[WEBRTC] Track onmute: kind="${event.track.kind}" | id="${event.track.id}". Preserving track attachments and elements.`);
+      };
+      event.track.onunmute = () => {
+        console.log(`[WEBRTC] Track onunmute: kind="${event.track.kind}" | id="${event.track.id}". track live again.`);
+        setRemoteStreamVersion((v) => v + 1);
+      };
+      event.track.onended = () => {
+        console.log(`[WEBRTC] Track onended callback: kind="${event.track.kind}" | id="${event.track.id}". Keeping element mounted.`);
+      };
     };
 
     // Forward gathered ICE candidates to paired stranger

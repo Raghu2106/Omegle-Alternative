@@ -35,6 +35,7 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
@@ -100,6 +101,24 @@ export default function VideoPlayer({
         })
         .catch((err) => {
           console.warn("[VideoPlayer] Remote video play failed inside callback ref: ", err);
+        });
+    }
+  }, [remoteStream]);
+
+  const remoteAudioCallback = useCallback((el: HTMLAudioElement | null) => {
+    remoteAudioRef.current = el;
+    if (el && remoteStream) {
+      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH AUDIO
+      if (el.srcObject !== remoteStream) {
+        console.log("[VideoPlayer] Binding remoteStream to voice-mode audio element via callback ref (Unmuted)");
+        el.srcObject = remoteStream;
+      }
+      el.play()
+        .then(() => {
+          setAutoplayBlocked(false);
+        })
+        .catch((err) => {
+          console.warn("[VideoPlayer] Remote audio play failed inside callback ref: ", err);
         });
     }
   }, [remoteStream]);
@@ -202,10 +221,8 @@ export default function VideoPlayer({
     const el = remoteVideoRef.current;
     if (el && remoteStream) {
       el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH VIDEO
-      if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect (Unmuted)");
-        el.srcObject = remoteStream;
-      }
+      console.log("[VideoPlayer] Explicitly binding/refreshing remoteStream on version update:", remoteStreamVersion);
+      el.srcObject = remoteStream;
       el.play()
         .then(() => {
           setAutoplayBlocked(false);
@@ -217,6 +234,31 @@ export default function VideoPlayer({
       setAutoplayBlocked(false);
     }
   }, [remoteStream, remoteStreamVersion, layoutMode, isPaired]);
+
+  useEffect(() => {
+    if (mode !== "voice") return;
+    const el = remoteAudioRef.current;
+    if (el && remoteStream) {
+      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH AUDIO
+      if (el.srcObject !== remoteStream) {
+        console.log("[VideoPlayer] Binding remoteStream to audio element via useEffect (Unmuted)");
+        el.srcObject = remoteStream;
+      }
+      el.play()
+        .then(() => {
+          console.log("[VoiceMode] Audio element play through useEffect succeeded");
+          setAutoplayBlocked(false);
+        })
+        .catch((err) => {
+          console.warn("[VoiceMode] Audio play through useEffect failed:", err);
+          if (err.name === "NotAllowedError") {
+            setAutoplayBlocked(true);
+          }
+        });
+    } else {
+      setAutoplayBlocked(false);
+    }
+  }, [remoteStream, remoteStreamVersion, isPaired, mode]);
 
   const getWebrtcStatusLabel = () => {
     if (!webrtcStatus || webrtcStatus === "idle") return "";
@@ -412,22 +454,11 @@ export default function VideoPlayer({
         {/* Hidden native audio tag to play the remote voice stream */}
         {isPaired && remoteStream && (
           <audio
-            ref={(audioEl) => {
-              if (audioEl) {
-                audioEl.muted = false;
-                if (audioEl.srcObject !== remoteStream) {
-                  console.log("[VoiceMode] Binding remote voice stream to audio element");
-                  audioEl.srcObject = remoteStream;
-                }
-                audioEl.play().catch((err) => {
-                  console.warn("[VoiceMode] Inline audio play failed: ", err);
-                });
-              }
-            }}
+            ref={remoteAudioCallback}
             autoPlay
             playsInline
             controls={false}
-            className="hidden"
+            className="absolute w-0 h-0 opacity-0 pointer-events-none"
           />
         )}
       </div>
@@ -505,7 +536,8 @@ export default function VideoPlayer({
         layout
         className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center transition-all w-full h-full min-h-0"
       >
-        {isPaired && remoteStream && remoteStream.getVideoTracks().length > 0 ? (
+        {/* Persistent, un-unmounted video element that survives ALL state/track adjustments. */}
+        {isPaired && (
           <video
             id="remote-video"
             ref={remoteVideoCallback}
@@ -514,13 +546,32 @@ export default function VideoPlayer({
             muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
-        ) : isPaired && remoteVideoFrame ? (
-          <img
-            src={remoteVideoFrame}
-            className="w-full h-full object-cover bg-slate-950 select-none pointer-events-none"
-            alt="Remote Stranger Feed"
-          />
-        ) : (
+        )}
+
+        {/* Overlays / Fallbacks presented on top of the active video stream if video tracks are temporarily offline, but keeping video element mounted for continuous audio */}
+        {isPaired && (!remoteStream || remoteStream.getVideoTracks().length === 0) && (
+          remoteVideoFrame ? (
+            <img
+              src={remoteVideoFrame}
+              className="absolute inset-0 w-full h-full object-cover bg-slate-950 select-none pointer-events-none z-10"
+              alt="Remote Stranger Feed"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
+              <div className="space-y-3">
+                <div className="rounded-full bg-slate-800/80 p-3 mx-auto w-fit text-slate-400 border border-slate-700 animate-pulse">
+                  <span className={`w-2.5 h-2.5 rounded-full inline-block ${getWebrtcStatusColorClass()}`} />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-semibold text-slate-300 text-sm">Waiting for Stranger's Feed...</p>
+                  <p className="text-xs text-slate-500">Audio is fully connected and active</p>
+                </div>
+              </div>
+            </div>
+          )
+        )}
+
+        {!isPaired && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-6 text-center select-none bg-radial from-slate-900 to-slate-950">
             {isSearching ? (
               <div className="space-y-4">
@@ -550,12 +601,6 @@ export default function VideoPlayer({
         )}
 
 
-
-        {/* Video Overlay Status Tag */}
-        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-slate-200 flex items-center gap-1 sm:gap-1.5 font-medium shadow-xs z-30 font-sans">
-          <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${getWebrtcStatusColorClass()}`} />
-          Stranger Live{getWebrtcStatusLabel()}
-        </div>
       </motion.div>
  
       {/* LOCAL USER VIEW BLOCK */}
@@ -580,16 +625,17 @@ export default function VideoPlayer({
             : "relative w-full h-full min-h-0 rounded-2xl border border-slate-800"
         }`}
       >
-        {localStream && cameraActive ? (
+        {localStream && (
           <video
             id="local-video"
             ref={localVideoCallback}
             autoPlay
             playsInline
             muted={true}
-            className="w-full h-full bg-slate-950 mirror-mode object-cover"
+            className={`w-full h-full bg-slate-950 mirror-mode object-cover ${cameraActive ? "block" : "hidden"}`}
           />
-        ) : (
+        )}
+        {(!localStream || !cameraActive) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-center p-3 bg-radial from-slate-900 to-slate-950">
             <CameraOff className={`mx-auto text-slate-500 ${layoutMode === "pip" ? "h-4 w-4" : "h-6 w-6 mb-1"}`} />
             <p className={`font-semibold text-slate-400 text-center ${layoutMode === "pip" ? "text-[8px]" : "text-xs"}`}>
