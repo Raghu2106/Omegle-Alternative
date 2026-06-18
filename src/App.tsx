@@ -112,14 +112,16 @@ export default function App() {
         { urls: "stun:stun2.l.google.com:19302" },
         { urls: "stun:stun3.l.google.com:19302" },
         { urls: "stun:stun4.l.google.com:19302" },
-        { urls: "stun:stun.ekiga.net" },
+        { urls: "stun:openrelay.metered.ca:80" },
         {
-          urls: "turns:openrelay.metered.ca:443?transport=tcp",
-          username: "openrelayproject",
-          credential: "openrelayproject"
-        },
-        {
-          urls: "turn:openrelay.metered.ca:3478?transport=udp",
+          urls: [
+            "turn:openrelay.metered.ca:80",
+            "turn:openrelay.metered.ca:443",
+            "turn:openrelay.metered.ca:443?transport=tcp",
+            "turns:openrelay.metered.ca:443?transport=tcp",
+            "turn:openrelay.metered.ca:3478?transport=udp",
+            "turn:openrelay.metered.ca:3478?transport=tcp"
+          ],
           username: "openrelayproject",
           credential: "openrelayproject"
         }
@@ -1243,17 +1245,18 @@ export default function App() {
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
           { urls: "stun:stun2.l.google.com:19302" },
+          { urls: "stun:openrelay.metered.ca:80" },
 
-          // 2. High-performance Secure TURN (turns) on port 443 over TCP.
+          // 2. High-performance Secure TURN (turns) on port 80 and 443 over TCP & UDP.
           {
-            urls: "turns:openrelay.metered.ca:443?transport=tcp",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-
-          // 3. Fallback TURN (turn) on standard WebRTC UDP port 3478
-          {
-            urls: "turn:openrelay.metered.ca:3478?transport=udp",
+            urls: [
+              "turn:openrelay.metered.ca:80",
+              "turn:openrelay.metered.ca:443",
+              "turn:openrelay.metered.ca:443?transport=tcp",
+              "turns:openrelay.metered.ca:443?transport=tcp",
+              "turn:openrelay.metered.ca:3478?transport=udp",
+              "turn:openrelay.metered.ca:3478?transport=tcp"
+            ],
             username: "openrelayproject",
             credential: "openrelayproject"
           }
@@ -1277,7 +1280,7 @@ export default function App() {
 
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
-      iceTransportPolicy: modeRef.current === "voice" ? "relay" : "all"
+      iceTransportPolicy: "all"
     });
 
     pcRef.current = pc;
