@@ -259,12 +259,12 @@ export default function App() {
 
     const startRecordingBurst = () => {
       const pc = pcRef.current;
-      const isWebRTCActive = (pc && (
+      const isWebRTCActive = !!(pc && (
         pc.connectionState === "connected" || 
         pc.iceConnectionState === "connected" || 
         pc.connectionState === "completed" || 
         pc.iceConnectionState === "completed"
-      )) || !!remoteStream;
+      ));
       if (!audioLoopActive || !micActive || !localStream || isWebRTCActive) {
         return;
       }
@@ -302,12 +302,12 @@ export default function App() {
 
         recorder.onstop = () => {
           const pc = pcRef.current;
-          const isWebRTCActiveNow = (pc && (
+          const isWebRTCActiveNow = !!(pc && (
             pc.connectionState === "connected" || 
             pc.iceConnectionState === "connected" || 
             pc.connectionState === "completed" || 
             pc.iceConnectionState === "completed"
-          )) || !!remoteStream;
+          ));
 
           if (chunks.length > 0 && !isWebRTCActiveNow) {
             const audioBlob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
@@ -317,12 +317,12 @@ export default function App() {
               if (socket && partnerIdRef.current === currentPartner) {
                 // Double check WebRTC state right before sending
                 const finalPc = pcRef.current;
-                const finalWebRTCActive = (finalPc && (
+                const finalWebRTCActive = !!(finalPc && (
                   finalPc.connectionState === "connected" || 
                   finalPc.iceConnectionState === "connected" || 
                   finalPc.connectionState === "completed" || 
                   finalPc.iceConnectionState === "completed"
-                )) || !!remoteStream;
+                ));
                 if (!finalWebRTCActive) {
                   socket.emit("webrtc-signal", {
                     to: currentPartner,
@@ -406,8 +406,9 @@ export default function App() {
           if (signal.offer) {
             console.log("[SIGNALING] Processing offer from:", from);
             let activePc = pcRef.current;
-            // If the responder's PeerConnection is failed, disconnected, or closed, we recreate it before applying
-            if (!activePc || activePc.connectionState === "failed" || activePc.connectionState === "disconnected" || activePc.connectionState === "closed") {
+            // If the responder's PeerConnection doesn't exist or is closed, we instantiate/recreate it safely.
+            // We do NOT destroy/recreate for "failed" or "disconnected" because these can naturally be recovered by ICE Restarts on the same PeerConnection!
+            if (!activePc || activePc.signalingState === "closed" || activePc.connectionState === "closed") {
               console.log("[WEBRTC] Receiver's PeerConnection is stale/failed. Re-instantiating responder connection before applying offer...");
               await initiateWebRTCPeer(from, false);
               activePc = pcRef.current;
@@ -774,24 +775,24 @@ export default function App() {
       if (signal && signal.mediaFrame) {
         // Only set the fallback remote frame if standard WebRTC P2P is not yet active
         const pc = pcRef.current;
-        const isWebRTCActive = (pc && (
+        const isWebRTCActive = !!(pc && (
           pc.connectionState === "connected" || 
           pc.iceConnectionState === "connected" || 
           pc.connectionState === "completed" || 
           pc.iceConnectionState === "completed"
-        )) || !!remoteStream;
+        ));
         if (!isWebRTCActive) {
           setRemoteVideoFrame(signal.mediaFrame);
         }
       } else if (signal && signal.mediaAudioChunk) {
         // Enqueue fallback audio chunks sequentially if standard WebRTC status is not yet active
         const pc = pcRef.current;
-        const isWebRTCActive = (pc && (
+        const isWebRTCActive = !!(pc && (
           pc.connectionState === "connected" || 
           pc.iceConnectionState === "connected" || 
           pc.connectionState === "completed" || 
           pc.iceConnectionState === "completed"
-        )) || !!remoteStream;
+        ));
         if (!isWebRTCActive) {
           audioQueueRef.current.push(signal.mediaAudioChunk);
           if (!isPlayingAudioQueueRef.current) {
@@ -1241,6 +1242,7 @@ export default function App() {
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         logSelectedCandidatePair();
         stopAndClearFallbackAudio();
+        setRemoteVideoFrame(null); // Clear fallback frame
       }
       if (pc.iceConnectionState === "failed") {
         console.warn("[ICE] ICE Connection failed. Triggering ICE restart...");
@@ -1253,9 +1255,10 @@ export default function App() {
       if (pc.connectionState === "connected") {
         logSelectedCandidatePair();
         stopAndClearFallbackAudio();
+        setRemoteVideoFrame(null); // Clear fallback frame
       }
-      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-        console.warn("[WEBRTC] PeerConnection failed or disconnected. Triggering ICE restart...");
+      if (pc.connectionState === "failed") {
+        console.warn("[WEBRTC] PeerConnection failed. Triggering ICE restart...");
         handleIceRestart(peerSocketId, isInitiator);
       }
     };
