@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "motion/react";
-import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor, Maximize2, Minimize2, AlertCircle, Volume2, VolumeX } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff, Users, Sparkles, Grid, Layers, Monitor, Maximize2, Minimize2, AlertCircle } from "lucide-react";
 
 interface VideoPlayerProps {
   localStream: MediaStream | null;
@@ -35,7 +35,7 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteAudioRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
@@ -47,7 +47,6 @@ export default function VideoPlayer({
   });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVirtualFullscreen, setIsVirtualFullscreen] = useState(false);
-  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [userHasInteracted, setUserHasInteracted] = useState(false);
   const [showLocalControls, setShowLocalControls] = useState(false);
   const [isInsideIframe, setIsInsideIframe] = useState(false);
@@ -95,65 +94,25 @@ export default function VideoPlayer({
         console.log("[VideoPlayer] Binding remoteStream to video element via callback ref (Unmuted)");
         el.srcObject = remoteStream;
       }
-      el.play()
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          console.warn("[VideoPlayer] Remote video play failed inside callback ref: ", err);
-          setAutoplayBlocked(true);
-        });
+      el.play().catch((err) => {
+        console.warn("[VideoPlayer] Remote video play failed inside callback ref: ", err);
+      });
     }
   }, [remoteStream]);
 
-  const remoteAudioCallback = useCallback((el: HTMLVideoElement | null) => {
+  const remoteAudioCallback = useCallback((el: HTMLAudioElement | null) => {
     remoteAudioRef.current = el;
     if (el && remoteStream) {
       el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH AUDIO
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to voice-mode video element via callback ref (Unmuted)");
+        console.log("[VideoPlayer] Binding remoteStream to voice-mode audio element via callback ref (Unmuted)");
         el.srcObject = remoteStream;
       }
-      el.play()
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          console.warn("[VideoPlayer] Remote audio play failed inside callback ref: ", err);
-          setAutoplayBlocked(true);
-        });
+      el.play().catch((err) => {
+        console.warn("[VideoPlayer] Remote audio play failed inside callback ref: ", err);
+      });
     }
   }, [remoteStream]);
-
-  const handleUnblockAudio = () => {
-    const el = remoteAudioRef.current;
-    if (el) {
-      el.muted = false;
-      console.log("[VideoPlayer] Manual unblock triggered on video element in voice mode");
-      el.play()
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          console.error("[VideoPlayer] Manual audio (video element) unblock failed:", err);
-        });
-    }
-  };
-
-  const handleUnblockVideoAudio = () => {
-    const el = remoteVideoRef.current;
-    if (el) {
-      el.muted = false;
-      console.log("[VideoPlayer] Manual unblock triggered on video element");
-      el.play()
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          console.error("[VideoPlayer] Manual video/audio unblock failed:", err);
-        });
-    }
-  };
 
   // Re-verify on resize or update to ensure mobile and tablet never run in "grid" (Up/Down stacked) mode
   useEffect(() => {
@@ -255,15 +214,9 @@ export default function VideoPlayer({
       el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH VIDEO
       console.log("[VideoPlayer] Explicitly binding/refreshing remoteStream on version update:", remoteStreamVersion);
       el.srcObject = remoteStream;
-      el.play()
-        .then(() => {
-          setAutoplayBlocked(false);
-        })
-        .catch((err) => {
-          console.warn("[VideoPlayer] Remote video play failed inside useEffect: ", err);
-        });
-    } else {
-      setAutoplayBlocked(false);
+      el.play().catch((err) => {
+        console.warn("[VideoPlayer] Remote video play failed inside useEffect: ", err);
+      });
     }
   }, [remoteStream, remoteStreamVersion, layoutMode, isPaired]);
 
@@ -279,16 +232,10 @@ export default function VideoPlayer({
       el.play()
         .then(() => {
           console.log("[VoiceMode] Audio element play through useEffect succeeded");
-          setAutoplayBlocked(false);
         })
         .catch((err) => {
           console.warn("[VoiceMode] Audio play through useEffect failed:", err);
-          if (err.name === "NotAllowedError") {
-            setAutoplayBlocked(true);
-          }
         });
-    } else {
-      setAutoplayBlocked(false);
     }
   }, [remoteStream, remoteStreamVersion, isPaired, mode]);
 
@@ -448,18 +395,6 @@ export default function VideoPlayer({
         {/* Right Section: Microphone & Connection Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 z-10 shrink-0">
 
-          {autoplayBlocked && isPaired && (
-            <button
-              type="button"
-              onClick={handleUnblockAudio}
-              className="bg-emerald-500 hover:bg-emerald-600 border border-emerald-400 text-white font-extrabold px-2.5 py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs transition-all cursor-pointer shadow-lg animate-bounce shrink-0 flex items-center gap-1"
-              title="Click to hear partner voice stream"
-            >
-              <VolumeX className="w-3.5 h-3.5 animate-pulse" />
-              <span>Hear Stranger</span>
-            </button>
-          )}
-
           <button
             id="bg-btn-voice-toggle-mic"
             type="button"
@@ -495,14 +430,13 @@ export default function VideoPlayer({
           )}
         </div>
 
-        {/* Hidden native video tag instead of audio to play the remote voice stream */}
+        {/* Hidden native audio tag to play the remote voice stream */}
         {isPaired && remoteStream && (
-          <video
+          <audio
             ref={remoteAudioCallback}
             autoPlay
-            playsInline
             controls={false}
-            className="absolute w-0 h-0 opacity-0 pointer-events-none"
+            className="hidden"
           />
         )}
       </div>
@@ -590,34 +524,6 @@ export default function VideoPlayer({
             muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
-        )}
-
-        {/* If autoplay is blocked in video mode, we show a gorgeous interactive unblock button */}
-        {autoplayBlocked && isPaired && (
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 z-40 text-center select-none">
-            <div className="max-w-xs space-y-4">
-              <div className="relative flex items-center justify-center mx-auto">
-                <span className="absolute inline-flex h-12 w-12 rounded-full bg-indigo-500 opacity-20 animate-ping"></span>
-                <div className="relative rounded-full bg-indigo-600 p-3 text-white">
-                  <VolumeX className="h-6 w-6" />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-sm font-extrabold text-slate-100 tracking-wider uppercase">Audio is Muted</h4>
-                <p className="text-xs text-slate-400 leading-normal">
-                  Your browser restricts audio autoplay on this stream. Tap below to unmute and hear the stranger.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleUnblockVideoAudio}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>Unmute Stranger Feed</span>
-              </button>
-            </div>
-          </div>
         )}
 
         {/* Overlays / Fallbacks presented on top of the active video stream if video tracks are temporarily offline, but keeping video element mounted for continuous audio */}

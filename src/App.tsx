@@ -1277,7 +1277,7 @@ export default function App() {
 
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
-      iceTransportPolicy: "all"
+      iceTransportPolicy: modeRef.current === "voice" ? "relay" : "all"
     });
 
     pcRef.current = pc;
