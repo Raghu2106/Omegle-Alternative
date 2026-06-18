@@ -95,6 +95,8 @@ export default function App() {
   const autoConnectRef = useRef<boolean>(autoConnect);
   const appStateRef = useRef<AppState>(appState);
   const agreedToTermsRef = useRef<boolean>(agreedToTerms);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
 
   useEffect(() => {
     appStateRef.current = appState;
@@ -139,7 +141,8 @@ export default function App() {
   // Seamless Custom Socket-based Media Relaying & Fallback Engine
   useEffect(() => {
     let videoIntervalId: any = null;
-    let audioRecorder: MediaRecorder | null = null;
+    let audioLoopId: any = null;
+    let activeSegmentRecorder: MediaRecorder | null = null;
 
     const currentPartner = partnerId;
     const socket = socketRef.current;
@@ -175,16 +178,86 @@ export default function App() {
       }, 85);
     }
 
-    // 2. Audio chunks capturing/encoding - Disabled to prevent echoes, hardware microphone locking, and to rely purely on standard, high-quality, continuous WebRTC voice streaming safely.
+    // 2. High-continuity self-contained audio segment recording loop
+    if (micActive && localStream) {
+      const audioTracks = localStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        let mimeOption = "";
+        try {
+          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+            mimeOption = "audio/webm;codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+            mimeOption = "audio/mp4";
+          } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+            mimeOption = "audio/aac";
+          }
+        } catch (e) {
+          // isTypeSupported fallback
+        }
+
+        const startNewSegmentRecorder = () => {
+          if (appStateRef.current !== "paired" || !localStream || !socket || partnerIdRef.current !== currentPartner) {
+            return;
+          }
+          const currentTracks = localStream.getAudioTracks();
+          if (currentTracks.length === 0) return;
+
+          try {
+            const recordStream = new MediaStream(currentTracks);
+            const recorder = new MediaRecorder(
+              recordStream,
+              mimeOption ? { mimeType: mimeOption } : undefined
+            );
+
+            recorder.ondataavailable = (event) => {
+              if (event.data && event.data.size > 0 && socket && partnerIdRef.current === currentPartner) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const base64Audio = reader.result as string;
+                  socket.emit("webrtc-signal", {
+                    to: currentPartner,
+                    signal: { mediaAudioChunk: base64Audio }
+                  });
+                };
+                reader.readAsDataURL(event.data);
+              }
+            };
+
+            activeSegmentRecorder = recorder;
+            recorder.start();
+          } catch (recorderErr) {
+            console.error("[MediaRelay] Failed to initialize segment recorder:", recorderErr);
+          }
+        };
+
+        // Bootstrap first segment
+        startNewSegmentRecorder();
+
+        // Sequential 400ms interval stops current recorder (flushing segment with full file headers) and restarts a fresh one.
+        audioLoopId = setInterval(() => {
+          if (activeSegmentRecorder && activeSegmentRecorder.state === "recording") {
+            try {
+              activeSegmentRecorder.stop();
+            } catch (err) {
+              console.warn("[MediaRelay] Segment stop deferred:", err);
+            }
+          }
+          startNewSegmentRecorder();
+        }, 400);
+      }
+    }
 
     return () => {
       console.log("[MediaRelay] Cleared local media socket fallbacks.");
       if (videoIntervalId) {
         clearInterval(videoIntervalId);
       }
-      if (audioRecorder && audioRecorder.state !== "inactive") {
+      if (audioLoopId) {
+        clearInterval(audioLoopId);
+      }
+      if (activeSegmentRecorder && activeSegmentRecorder.state !== "inactive") {
         try {
-          audioRecorder.stop();
+          activeSegmentRecorder.stop();
         } catch (stopErr) {
           // ignore
         }
@@ -474,7 +547,43 @@ export default function App() {
       if (signal && signal.mediaFrame) {
         setRemoteVideoFrame(signal.mediaFrame);
       } else if (signal && signal.mediaAudioChunk) {
-        // Socket custom audio chunk disabled - rely entirely on standard, high-quality WebRTC audio stream to prevent echo
+        // High-level continuous scheduler: Web Audio API timeline queuing
+        const scheduleAudioBuffer = async (dataUrl: string) => {
+          try {
+            if (!audioCtxRef.current) {
+              const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+              audioCtxRef.current = new AudioContextClass();
+            }
+            if (audioCtxRef.current.state === "suspended") {
+              await audioCtxRef.current.resume();
+            }
+            const res = await fetch(dataUrl);
+            const arrayBuffer = await res.arrayBuffer();
+            const audioBuffer = await audioCtxRef.current.decodeAudioData(arrayBuffer);
+            
+            const source = audioCtxRef.current.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtxRef.current.destination);
+            
+            const now = audioCtxRef.current.currentTime;
+            // Prevent gaps or timeline pile-ups from network jitter & drift
+            if (nextPlayTimeRef.current < now) {
+              nextPlayTimeRef.current = now + 0.04; // 40ms seamless buffer offset
+            }
+            
+            source.start(nextPlayTimeRef.current);
+            nextPlayTimeRef.current += audioBuffer.duration;
+          } catch (audioErr: any) {
+            console.warn("[MediaRelay] Web Audio timeline scheduling deferred:", audioErr.message);
+            // Seamless dynamic backup play
+            try {
+              const fallbackAudio = new Audio(dataUrl);
+              fallbackAudio.volume = 1.0;
+              fallbackAudio.play().catch(() => {});
+            } catch (fbErr) {}
+          }
+        };
+        scheduleAudioBuffer(signal.mediaAudioChunk);
       } else {
         enqueueSignal(signal, from);
       }
@@ -744,7 +853,7 @@ export default function App() {
 
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
-      iceTransportPolicy: "all"
+      iceTransportPolicy: "relay"
     });
 
     pcRef.current = pc;
@@ -961,6 +1070,7 @@ export default function App() {
     isProcessingQueueRef.current = false;
     pendingRemoteCandidatesRef.current = [];
     setWebrtcStatus("idle");
+    nextPlayTimeRef.current = 0;
   };
 
   // Interest list management
