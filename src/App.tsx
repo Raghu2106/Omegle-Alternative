@@ -162,16 +162,6 @@ export default function App() {
     localStreamRef.current = localStream;
   }, [localStream]);
 
-  // Handle client-side interest priority fallback messaging
-  useEffect(() => {
-    if (appState === "searching" && interests.length > 0) {
-      const timer = setTimeout(() => {
-        addSystemMessage("No common interest partner found within 5 seconds. Widening search to all online strangers...");
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [appState, interests]);
-
   // Delay/gate custom WebSocket media relaying from starting during initial setup to keep candidate channels clear
   useEffect(() => {
     if (appState !== "paired" || mode !== "video") {
@@ -741,12 +731,7 @@ export default function App() {
         common_interests: common,
       });
 
-      addSystemMessage("Stranger connected!");
-      if (common.length > 0) {
-        addSystemMessage(`You share common interest(s): ${common.join(", ")}`);
-      } else {
-        addSystemMessage("Searching found a random stranger.");
-      }
+      addSystemMessage("stranger connected");
 
       // If user selected Video or Voice mode, instantly negotiate WebRTC peer stream
       if (modeRef.current === "video" || modeRef.current === "voice") {
@@ -807,26 +792,22 @@ export default function App() {
       }
     });
 
-    // Handle sudden stranger disconnects or leaves
+     // Handle sudden stranger disconnects or leaves
     socket.on("stranger-disconnected", () => {
       if (appStateRef.current === "landing") return;
-      addSystemMessage("Stranger has disconnected.");
       cleanPeerConnection();
       trackEvent("match_disconnected", { mode: modeRef.current });
       if (autoConnectRef.current) {
-        addSystemMessage("Auto-Connecting with a new stranger in 1.5 seconds...");
         setTimeout(() => {
           handleSkipMatch();
         }, 1500);
       } else {
         setAppState("idle");
-        addSystemMessage("Connection paused. Refine your interests or click Resume/Connect to start matching.");
       }
     });
 
     // Socket fallback status logs
     socket.on("disconnect", () => {
-      addSystemMessage("Lost connection to server. Retrying...");
       cleanPeerConnection();
       if (appStateRef.current !== "landing") {
         setAppState("idle");
@@ -1301,7 +1282,6 @@ export default function App() {
       } catch (err) {
         console.warn("[WEBRTC] Failed to add recvonly transceivers:", err);
       }
-      addSystemMessage(modeRef.current === "video" ? "Joining without active camera feed." : "Joining without active microphone feed.");
     }
 
     // Handle receiving incoming track with high-availability track merging
@@ -1471,7 +1451,6 @@ export default function App() {
           to: peerSocketId,
           signal: { offer: finalOfferToSend }
         });
-        addSystemMessage("Re-routing connection path...");
       } catch (err) {
         console.error("Failed to execute ICE restart offer generation:", err);
       }
@@ -1575,11 +1554,14 @@ export default function App() {
 
     trackEvent("join_search", { mode: activeMode, interests_count: interests.length, interests });
 
-    addSystemMessage("Routing to connection pool...");
+    if (interests.length > 0) {
+      addSystemMessage("please wait while we connect to a random stranger based on your interests");
+    } else {
+      addSystemMessage("please wait while we connect you to a random stranger");
+    }
 
     // Lazy media setup ahead of routing to maintain flow
     if (activeMode === "video" || activeMode === "voice") {
-      addSystemMessage(activeMode === "video" ? "Booting camera interface..." : "Booting microphone interface...");
       await requestLocalStream(activeMode);
     }
 
@@ -1589,8 +1571,6 @@ export default function App() {
       interests,
       mode: activeMode
     });
-
-    addSystemMessage("Searching for matching stranger...");
   };
 
   // Pause matching (cancel current search and remain in idle chat lobby)
@@ -1598,7 +1578,6 @@ export default function App() {
     socketRef.current?.emit("stop-search");
     setAppState("idle");
     cleanPeerConnection();
-    addSystemMessage("Connection paused. You can edit your interests or click Resume/Connect to find a stranger.");
     trackEvent("match_paused", { mode });
   };
 
@@ -1607,7 +1586,13 @@ export default function App() {
     cleanPeerConnection();
     setMessages([]);
     setAppState("searching");
-    addSystemMessage("Looking for a new stranger...");
+
+    if (interests.length > 0) {
+      addSystemMessage("please wait while we connect to a random stranger based on your interests");
+    } else {
+      addSystemMessage("please wait while we connect you to a random stranger");
+    }
+
     trackEvent("match_skipped", { mode, interests_count: interests.length });
 
     socketRef.current?.emit("start-search", {
@@ -1679,7 +1664,6 @@ export default function App() {
   const handleRetryWebRTC = async () => {
     if (partnerIdRef.current) {
       console.log("[WebRTC] Manually retrying WebRTC connection with partner:", partnerIdRef.current);
-      addSystemMessage("Re-negotiating peer association tracks...");
       setWebrtcStatus("connecting");
       await initiateWebRTCPeer(partnerIdRef.current, isInitiatorRef.current);
       
