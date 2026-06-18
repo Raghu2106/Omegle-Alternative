@@ -65,6 +65,8 @@ export default function App() {
 
   // Terms and conditions agreement states
   const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
+  const [confirmedAge, setConfirmedAge] = useState<boolean>(false);
+  const [agreementError, setAgreementError] = useState<string | null>(null);
   const [showTermsDetail, setShowTermsDetail] = useState<boolean>(false);
   const [showPrivacyDetail, setShowPrivacyDetail] = useState<boolean>(false);
 
@@ -1646,6 +1648,16 @@ export default function App() {
     }
   };
 
+  // Onboarding verification submit
+  const handleOnboardingSubmit = async () => {
+    if (!agreedToTerms || !confirmedAge) {
+      setAgreementError("Please tick both boxes to agree to the terms and confirm you are 18+.");
+      return;
+    }
+    setAgreementError(null);
+    await handleStartMatching(mode);
+  };
+
   // Start search sequence
   const handleStartMatching = async (overrideMode?: "text" | "voice" | "video") => {
     const activeMode = overrideMode || mode;
@@ -1660,7 +1672,7 @@ export default function App() {
     destroyRemoteAudioElement();
     setAppState("searching");
 
-    trackEvent("join_search", { mode: activeMode, interests_count: 0, interests: [] });
+    trackEvent("join_search", { mode: activeMode, interests_count: interests.length, interests });
 
     addSystemMessage("Routing to connection pool...");
 
@@ -1673,7 +1685,7 @@ export default function App() {
     // Ping matching handshake to Express Socket.io server
     initSocketConnection();
     socketRef.current?.emit("start-search", {
-      interests: [],
+      interests,
       mode: activeMode
     });
 
@@ -1867,107 +1879,178 @@ export default function App() {
               {/* Left Skyscraper banner */}
               <div className="hidden xl:flex fixed left-5 top-[110px] flex-col items-center justify-center w-[160px] h-[600px] shrink-0 border border-slate-200 rounded-2xl bg-white shadow-md text-center select-none overflow-hidden z-40">
                 <AdContainer idKey="e8619ab246117925511ef3ee3678d803" width={160} height={600} />
-              </div>
-              {/* Center Dashboard */}
-              <div className="flex-grow max-w-4xl w-full mx-auto relative z-10">
-                <div className="grid lg:grid-cols-12 gap-5 lg:gap-8 items-center lg:items-stretch">
-                  
-                  {/* Left Column: Brand Intro & Info (Sits side-by-side with match configs on wide devices) */}
-                  <div className="lg:col-span-5 flex flex-col justify-between py-1 lg:py-4 space-y-4 lg:space-y-6">
-                    <div className="space-y-3 sm:space-y-4 text-center lg:text-left">
-                      <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-indigo-50 to-sky-50 border border-indigo-100/70 rounded-full px-3.5 py-1 text-xs text-indigo-700 font-bold shadow-2xs">
-                        <Sparkles className="w-3.5 h-3.5" /> True Anonymous Connections
-                      </div>
-                      <h2 className="text-2xl sm:text-3xl lg:text-2xl xl:text-3xl font-extrabold tracking-tight text-slate-900 leading-[1.12]">
-                        Talk to strangers, <span className="text-linear bg-gradient-to-r from-indigo-600 via-indigo-700 to-sky-500 bg-clip-text text-transparent">completely free.</span>
-                      </h2>
-                      <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-xl mx-auto lg:mx-0">
-                        Umegle pairs you instantly with peer companions worldwide. Filter matches by adding custom keywords to search for shared interests.
-                      </p>
-                    </div>
-
-                    {/* Integrated P2P Safety & Encryption block (Visible on wide screens) */}
-                    <div className="hidden lg:flex border border-slate-100 bg-white/75 backdrop-blur-xs p-4 rounded-xl gap-3 shadow-3xs">
-                      <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-                      <div className="space-y-0.5">
-                        <h5 className="text-xs font-bold text-slate-800 tracking-wide">P2P Encrypted Streams</h5>
-                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                          Match connections exchange data peer-to-peer. Local computer streams are not cached or stored on centralized databases. Stay safe!
-                        </p>
-                      </div>
-                    </div>
+              </div>              {/* Center Dashboard */}
+              <div className="flex-grow max-w-2xl w-full mx-auto relative z-10 flex flex-col space-y-4 items-center py-2 sm:py-3">
+                
+                {/* Hero Section: Brand Intro & Info (Super compact & clean) */}
+                <div className="w-full text-center space-y-2 px-2">
+                  <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-indigo-50 to-sky-50 border border-indigo-100/70 rounded-full px-3 py-0.5 text-[10px] text-indigo-700 font-bold shadow-2xs animate-pulse">
+                    <Sparkles className="w-3 h-3 text-indigo-500" /> True Anonymous Connections
                   </div>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 leading-tight">
+                    Talk to strangers, <span className="text-linear bg-gradient-to-r from-indigo-600 via-indigo-700 to-sky-500 bg-clip-text text-transparent">completely free.</span>
+                  </h2>
+                  <p className="text-xs text-slate-505 leading-relaxed max-w-lg mx-auto">
+                    Pairs you instantly with random companions worldwide. Filter matches securely by adding search keywords.
+                  </p>
+                </div>
 
-                  {/* Right Column: Interaction Parameter Box */}
-                  <div className="lg:col-span-7 bg-white/90 backdrop-blur-md rounded-2xl p-6 sm:p-8 border border-slate-200/80 shadow-xl shadow-slate-100/40 flex flex-col justify-center space-y-6">
-                    <div className="space-y-1.5 text-center sm:text-left">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Instant Pairing</span>
-                      <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">Select Mode & Start Pairing</h3>
-                      <p className="text-xs text-slate-500 leading-normal">
-                        Choose a mode below to immediately scan the active channel and pair with a live stranger.
-                      </p>
-                    </div>
-
-                    {/* Part 1: Choose Matching Mode (Now triggers handleStartMatching immediately!) */}
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Interactive Pairing Box - Sits below the Hero, super-compact for all device screens */}
+                <div className="w-full bg-white/95 backdrop-blur-md rounded-xl p-4 sm:p-5 border border-slate-205 shadow-xl shadow-slate-100/40 flex flex-col justify-center space-y-3.5">
+                    
+                    {/* Part 1: Choose Matching Mode (Highly elegant iOS-style responsive Segmented Control) */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-left">1. Select Chat Mode:</span>
+                        <span className="text-[10px] font-semibold text-indigo-600 tracking-wide bg-indigo-50 px-2 py-0.5 rounded-md capitalize">
+                          {mode} mode
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200">
                         {/* Option 1: Text */}
-                        <div 
+                        <button
                           id="mode-option-text"
-                          onClick={() => handleStartMatching("text")}
-                          className="group p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-500 bg-slate-50/40 hover:bg-indigo-50/15 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none shadow-2xs hover:shadow-md hover:scale-[1.03]"
+                          type="button"
+                          onClick={() => {
+                            setMode("text");
+                            setAgreementError(null);
+                          }}
+                          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all select-none cursor-pointer ${
+                            mode === "text" 
+                              ? "bg-indigo-600 text-white shadow-xs" 
+                              : "text-slate-600 hover:text-slate-800 hover:bg-slate-150/50"
+                          }`}
                         >
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mb-2 transition-all duration-300 bg-slate-100 border border-slate-200 text-slate-600 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-indigo-500/35">
-                            <MessageSquare className="w-4 h-4" />
-                          </div>
-                          <div className="space-y-0.5">
-                            <h4 className="text-[11px] font-bold text-slate-850 uppercase tracking-wider group-hover:text-indigo-600">Text Only</h4>
-                            <p className="text-[10px] text-slate-500 leading-normal">Instant, highly secure text chat.</p>
-                          </div>
-                        </div>
-
+                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                          <span>Text</span>
+                        </button>
+                        
                         {/* Option 2: Voice */}
-                        <div 
+                        <button
                           id="mode-option-voice"
-                          onClick={() => handleStartMatching("voice")}
-                          className="group p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-500 bg-slate-50/40 hover:bg-indigo-50/15 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none shadow-2xs hover:shadow-md hover:scale-[1.03]"
+                          type="button"
+                          onClick={() => {
+                            setMode("voice");
+                            setAgreementError(null);
+                          }}
+                          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all select-none cursor-pointer ${
+                            mode === "voice" 
+                              ? "bg-indigo-600 text-white shadow-xs" 
+                              : "text-slate-600 hover:text-slate-800 hover:bg-slate-150/50"
+                          }`}
                         >
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mb-2 transition-all duration-300 bg-slate-100 border border-slate-200 text-slate-600 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-indigo-500/35">
-                            <Volume2 className="w-4 h-4" />
-                          </div>
-                          <div className="space-y-0.5">
-                            <h4 className="text-[11px] font-bold text-slate-850 uppercase tracking-wider group-hover:text-indigo-600">Voice Chat</h4>
-                            <p className="text-[10px] text-slate-500 leading-normal">Connect via crystal clear voice stream.</p>
-                          </div>
-                        </div>
+                          <Volume2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>Voice</span>
+                        </button>
 
-                        {/* Option 3: Video */}
-                        <div 
+                        {/* Option 3: Webcam */}
+                        <button
                           id="mode-option-video"
-                          onClick={() => handleStartMatching("video")}
-                          className="group p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-500 bg-slate-50/40 hover:bg-indigo-50/15 cursor-pointer transition-all duration-300 flex flex-col items-center text-center select-none shadow-2xs hover:shadow-md hover:scale-[1.03]"
+                          type="button"
+                          onClick={() => {
+                            setMode("video");
+                            setAgreementError(null);
+                          }}
+                          className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all select-none cursor-pointer ${
+                            mode === "video" 
+                              ? "bg-indigo-600 text-white shadow-xs" 
+                              : "text-slate-600 hover:text-slate-800 hover:bg-slate-150/50"
+                          }`}
                         >
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mb-2 transition-all duration-300 bg-slate-100 border border-slate-200 text-slate-600 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-md group-hover:shadow-indigo-500/35">
-                            <Video className="w-4 h-4" />
+                          <Video className="w-3.5 h-3.5 shrink-0" />
+                          <span>Webcam</span>
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-semibold px-1 mt-1 leading-normal text-left transition-all duration-200">
+                        {mode === "text" && "📋 Secure, anonymous text chat with matched strangers."}
+                        {mode === "voice" && "🎙️ Real-time high quality voice call with instant connection."}
+                        {mode === "video" && "📹 Live peer-to-peer webcam streaming. Please remain safe and respectful."}
+                      </p>
+                    </div>
+
+                    {/* Part 2: Shared Interests tag insertion controls */}
+                    <div className="space-y-1.5 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">2. Add Interests (Optional):</span>
+                        {interests.length > 0 && (
+                          <button 
+                            type="button"
+                            onClick={() => setInterests([])}
+                            className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 cursor-pointer select-none transition-colors"
+                          >
+                            Clear All ({interests.length})
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex gap-2 items-stretch">
+                          <div className="flex-1 bg-slate-50/70 hover:bg-slate-100/50 focus-within:bg-white focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 border border-slate-205 rounded-xl p-1.5 transition-all flex flex-wrap gap-1 items-center max-h-[85px] overflow-y-auto">
+                            {interests.map((item) => (
+                              <span
+                                key={item}
+                                className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded-md animate-fade-in shrink-0"
+                              >
+                                <span>{item}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeInterest(item)}
+                                  className="hover:bg-indigo-150 p-0.5 rounded-full text-indigo-500 hover:text-indigo-700 transition-colors cursor-pointer"
+                                >
+                                  <X className="w-2.5 h-2.5" />
+                                </button>
+                              </span>
+                            ))}
+                            <input
+                              type="text"
+                              placeholder={interests.length > 0 ? "Add tag..." : "Type and press Enter (e.g. music, coding)"}
+                              value={interestInput}
+                              onChange={(e) => setInterestInput(e.target.value)}
+                              onKeyDown={handleInterestKeyDown}
+                              className="flex-1 min-w-[120px] bg-transparent border-0 p-0 px-1 text-xs text-slate-850 focus:ring-0 focus:outline-hidden placeholder:text-slate-400 py-1"
+                            />
                           </div>
-                          <div className="space-y-0.5">
-                            <h4 className="text-[11px] font-bold text-slate-850 uppercase tracking-wider group-hover:text-indigo-600">Webcam</h4>
-                            <p className="text-[10px] text-slate-500 leading-normal">Full peer-to-peer web camera streams.</p>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addInterest(interestInput)}
+                            className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition-all flex items-center justify-center gap-1 shrink-0 cursor-pointer shadow-3xs"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add</span>
+                          </button>
                         </div>
+                        {interests.length === 0 && (
+                          <p className="text-[10px] text-slate-400 italic font-medium leading-normal px-1">No tags added. Matching random strangers.</p>
+                        )}
                       </div>
                     </div>
 
-                    {/* Highly descriptive and regulatory compliant terms reminder (no active checkboxes required) */}
-                    <div className="p-3.5 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[10px] sm:text-[11px] text-slate-500 leading-relaxed space-y-2 text-center select-none">
-                      <div className="flex justify-center items-center gap-1.5 font-bold text-slate-705">
+                    {/* Part 3: Regulatory safety agreement checkboxes */}
+                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 text-[10.5px] text-slate-600 flex flex-col space-y-2 select-none text-left">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
                         <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                        <span>By matching, you agree to comply with our standards.</span>
+                        <span>3. Safety & Agreement:</span>
                       </div>
-                      <p>
-                        You confirm you are 18+ and adhere to the <span className="text-indigo-650 hover:underline font-bold cursor-pointer" onClick={() => setShowTermsDetail(!showTermsDetail)}>Terms of Use</span> and <span className="text-indigo-650 hover:underline font-bold cursor-pointer" onClick={() => setShowPrivacyDetail(!showPrivacyDetail)}>Privacy Policy</span>. No explicit content or misconduct is tolerated.
-                      </p>
                       
+                      <div className="flex flex-col space-y-1.5">
+                        <label className="flex items-start gap-2 cursor-pointer hover:text-slate-900 transition-colors select-none">
+                          <input
+                            type="checkbox"
+                            checked={confirmedAge && agreedToTerms}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setConfirmedAge(checked);
+                              setAgreedToTerms(checked);
+                              if (checked) setAgreementError(null);
+                            }}
+                            className="mt-0.5 rounded-xs border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer accent-indigo-600 shrink-0"
+                          />
+                          <span className="leading-tight font-medium text-slate-650">
+                            I am <span className="font-bold text-slate-800">18+ years of age</span> and accept the <span className="text-indigo-600 hover:underline font-bold" onClick={(e) => { e.preventDefault(); setShowTermsDetail(!showTermsDetail); }}>Terms of Service</span> and <span className="text-indigo-600 hover:underline font-bold" onClick={(e) => { e.preventDefault(); setShowPrivacyDetail(!showPrivacyDetail); }}>Privacy Policy</span>.
+                          </span>
+                        </label>
+                      </div>
+
                       <AnimatePresence mode="wait">
                         {showTermsDetail && (
                           <motion.div
@@ -1975,7 +2058,7 @@ export default function App() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="text-[10px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-2 text-left space-y-1 shadow-2xs overflow-hidden"
+                            className="text-[9.5px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-1 text-left space-y-1 shadow-2xs overflow-hidden"
                           >
                             <div className="font-bold text-slate-800">Terms of Use:</div>
                             <ul className="list-disc list-inside space-y-0.5 pl-1">
@@ -1992,7 +2075,7 @@ export default function App() {
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            className="text-[10px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-2 text-left space-y-1 shadow-2xs overflow-hidden"
+                            className="text-[9.5px] text-slate-500 leading-relaxed bg-white border border-slate-100 rounded-lg p-2.5 mt-1 text-left space-y-1 shadow-2xs overflow-hidden"
                           >
                             <div className="font-bold text-slate-800">Privacy Policy:</div>
                             <ul className="list-disc list-inside space-y-0.5 pl-1">
@@ -2004,9 +2087,36 @@ export default function App() {
                         )}
                       </AnimatePresence>
                     </div>
+
+                    {/* Inline alert if conditions aren't met */}
+                    {agreementError && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-2.5 rounded-lg bg-rose-50 border border-rose-250 text-rose-600 font-bold text-xs text-center flex items-center justify-center gap-1.5"
+                      >
+                        <Info className="w-3.5 h-3.5 shrink-0" />
+                        <span>{agreementError}</span>
+                      </motion.div>
+                    )}
+
+                    {/* Part 4: Start Chatting Connecting primary CTA button */}
+                    <button
+                      id="btn-start-connecting"
+                      type="button"
+                      onClick={handleOnboardingSubmit}
+                      className="w-full relative group bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-extrabold text-sm sm:text-base py-2.5 px-4 rounded-xl transition-all duration-300 shadow-md shadow-indigo-500/15 hover:shadow-indigo-500/25 hover:scale-[1.01] flex items-center justify-center gap-2 cursor-pointer select-none"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-300 group-hover:scale-120 transition-transform" />
+                      <span>Start Chatting & Connecting</span>
+                    </button>
                   </div>
 
-                </div>
+                  {/* Concise P2P footnote at the very bottom */}
+                  <p className="text-[10px] text-slate-400 font-medium text-center">
+                    🔒 Chat sessions are fully encrypted P2P. Streams are never cached or stored.
+                  </p>
+
               </div>
 
               {/* Right Skyscraper banner */}
