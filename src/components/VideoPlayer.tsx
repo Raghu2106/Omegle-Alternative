@@ -35,7 +35,34 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Dedicated remote audio player binding to guarantee high compatibility and audio routing on all devices
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream && isPaired) {
+      const audioTracks = remoteStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        console.log("[VideoPlayer] Playing remote audio track via dedicated selector component. Track counts:", audioTracks.length);
+        const audioStream = new MediaStream(audioTracks);
+        remoteAudioRef.current.srcObject = audioStream;
+        remoteAudioRef.current.muted = false;
+        remoteAudioRef.current.volume = 1.0;
+        
+        remoteAudioRef.current.play()
+          .then(() => {
+            console.log("[VideoPlayer] Dedicated audio playback started successfully.");
+          })
+          .catch((err) => {
+            console.warn("[VideoPlayer] Dedicated audio play deferred:", err);
+          });
+      } else {
+        remoteAudioRef.current.srcObject = null;
+      }
+    } else if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+  }, [remoteStream, remoteStreamVersion, isPaired]);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
   const [layoutMode, setLayoutMode] = useState<"grid" | "enlarged" | "pip">(() => {
@@ -244,12 +271,21 @@ export default function VideoPlayer({
       if (remoteVideoRef.current) {
         remoteVideoRef.current.play()
           .then(() => {
-            console.log("[VideoPlayer] Autoplay successfully recovered via user interaction.");
+            console.log("[VideoPlayer] Autoplay video successfully recovered via user interaction.");
             setAutoplayBlocked(false);
             setUserHasInteracted(true);
           })
           .catch((err) => {
             console.warn("[VideoPlayer] User interaction play recovery attempt failed:", err);
+          });
+      }
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.play()
+          .then(() => {
+            console.log("[VideoPlayer] Autoplay audio successfully recovered via user interaction.");
+          })
+          .catch((err) => {
+            console.warn("[VideoPlayer] User interaction audio play recovery attempt failed:", err);
           });
       }
     };
@@ -317,6 +353,13 @@ export default function VideoPlayer({
 
   return (
     <div ref={containerRef} className={getContainerClassName()}>
+      {/* Dedicated high-compatibility background audio element for stranger audio stream */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        style={{ display: "none" }}
+      />
       
       {/* Floating Iframe Restrictions Alert Bar */}
       {isInsideIframe && (
