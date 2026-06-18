@@ -35,7 +35,7 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const remoteAudioRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Flexible Layout modes: "grid" (stacked split), "enlarged" (side-by-side), "pip" (face-time card mode)
@@ -106,12 +106,12 @@ export default function VideoPlayer({
     }
   }, [remoteStream]);
 
-  const remoteAudioCallback = useCallback((el: HTMLAudioElement | null) => {
+  const remoteAudioCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteAudioRef.current = el;
     if (el && remoteStream) {
       el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH AUDIO
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to voice-mode audio element via callback ref (Unmuted)");
+        console.log("[VideoPlayer] Binding remoteStream to voice-mode video element via callback ref (Unmuted)");
         el.srcObject = remoteStream;
       }
       el.play()
@@ -129,13 +129,13 @@ export default function VideoPlayer({
     const el = remoteAudioRef.current;
     if (el) {
       el.muted = false;
-      console.log("[VideoPlayer] Manual unblock triggered on audio element");
+      console.log("[VideoPlayer] Manual unblock triggered on video element in voice mode");
       el.play()
         .then(() => {
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.error("[VideoPlayer] Manual audio unblock failed:", err);
+          console.error("[VideoPlayer] Manual audio (video element) unblock failed:", err);
         });
     }
   };
@@ -495,9 +495,9 @@ export default function VideoPlayer({
           )}
         </div>
 
-        {/* Hidden native audio tag to play the remote voice stream */}
+        {/* Hidden native video tag instead of audio to play the remote voice stream */}
         {isPaired && remoteStream && (
-          <audio
+          <video
             ref={remoteAudioCallback}
             autoPlay
             playsInline
