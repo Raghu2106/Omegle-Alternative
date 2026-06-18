@@ -105,6 +105,10 @@ export default function VideoPlayer({
         console.log("[VideoPlayer] Binding remoteStream to video element via callback ref");
         el.srcObject = remoteStream;
       }
+      // Force unmuting and set maximum volume to guarantee audio streams are audible
+      el.muted = false;
+      el.volume = 1.0;
+      
       el.play()
         .then(() => {
           setAutoplayBlocked((blocked) => {
@@ -386,6 +390,7 @@ export default function VideoPlayer({
             ref={remoteVideoCallback}
             autoPlay
             playsInline
+            muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
         ) : isPaired && remoteVideoFrame ? (
@@ -400,6 +405,7 @@ export default function VideoPlayer({
             ref={remoteVideoCallback}
             autoPlay
             playsInline
+            muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
         ) : (

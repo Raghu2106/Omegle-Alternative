@@ -279,7 +279,10 @@ export default function App() {
               console.log("[SIGNALING] Calling createAnswer");
               let answer;
               try {
-                answer = await activePc.createAnswer();
+                answer = await activePc.createAnswer({
+                  offerToReceiveAudio: true,
+                  offerToReceiveVideo: true
+                });
                 console.log("[SIGNALING] createAnswer succeeded:", answer);
               } catch (err) {
                 console.error("[SIGNALING] createAnswer failed:", err);
@@ -377,7 +380,10 @@ export default function App() {
               if (activePc) {
                 try {
                   console.log("[SIGNALING] Calling createOffer due to requestOffer petition");
-                  const offer = await activePc.createOffer();
+                  const offer = await activePc.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: true
+                  });
                   console.log("[SIGNALING] createOffer succeeded:", offer);
                   
                   console.log("[SIGNALING] Calling setLocalDescription with generated offer");
@@ -591,7 +597,11 @@ export default function App() {
           height: { ideal: 720 },
           facingMode: "user"
         },
-        audio: true
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
@@ -602,7 +612,14 @@ export default function App() {
     } catch (err) {
       console.warn("High-quality media stream denied, attempting standard video+audio fallback...", err);
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
         localStreamRef.current = stream;
         setLocalStream(stream);
         setCameraActive(true);
@@ -623,7 +640,14 @@ export default function App() {
         } catch (err2) {
           try {
             // Fallback 2: Audio-only if webcam is blocked or missing
-            const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: false,
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            });
             localStreamRef.current = stream;
             setLocalStream(stream);
             setCameraActive(false);
@@ -682,7 +706,10 @@ export default function App() {
     if (isInitiatorRef.current) {
       try {
         console.log("[WebRTC] Creating renegotiation SDP offer...");
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await pc.setLocalDescription(offer);
         socketRef.current?.emit("webrtc-signal", {
           to: partnerIdRef.current,
@@ -955,7 +982,11 @@ export default function App() {
     if (isInitiator) {
       try {
         console.log("[WebRTC] Attempting ICE restart...");
-        const offer = await pc.createOffer({ iceRestart: true });
+        const offer = await pc.createOffer({
+          iceRestart: true,
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await pc.setLocalDescription(offer);
         socketRef.current?.emit("webrtc-signal", {
           to: peerSocketId,
