@@ -175,53 +175,7 @@ export default function App() {
       }, 85);
     }
 
-    // 2. Audio chunks capturing/encoding (running in 250ms chunks)
-    if (micActive && localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        try {
-          const recordStream = new MediaStream(audioTracks);
-          let mimeOption = "";
-          try {
-            if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-              mimeOption = "audio/webm;codecs=opus";
-            } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-              mimeOption = "audio/mp4";
-            } else if (MediaRecorder.isTypeSupported("audio/aac")) {
-              mimeOption = "audio/aac";
-            }
-          } catch (e) {
-            // isTypeSupported fallback
-          }
-
-          const recorder = new MediaRecorder(
-            recordStream,
-            mimeOption ? { mimeType: mimeOption } : undefined
-          );
-
-          recorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Audio = reader.result as string;
-                if (socket && partnerIdRef.current === currentPartner) {
-                  socket.emit("webrtc-signal", {
-                    to: currentPartner,
-                    signal: { mediaAudioChunk: base64Audio }
-                  });
-                }
-              };
-              reader.readAsDataURL(event.data);
-            }
-          };
-
-          audioRecorder = recorder;
-          recorder.start(250); // Emit audio slices every 250ms
-        } catch (recorderErr) {
-          console.error("[MediaRelay] Failed to bootstrap custom audio recorder fallback:", recorderErr);
-        }
-      }
-    }
+    // 2. Audio chunks capturing/encoding - Disabled to prevent echoes, hardware microphone locking, and to rely purely on standard, high-quality, continuous WebRTC voice streaming safely.
 
     return () => {
       console.log("[MediaRelay] Cleared local media socket fallbacks.");
@@ -520,16 +474,7 @@ export default function App() {
       if (signal && signal.mediaFrame) {
         setRemoteVideoFrame(signal.mediaFrame);
       } else if (signal && signal.mediaAudioChunk) {
-        try {
-          const audio = new Audio(signal.mediaAudioChunk);
-          audio.volume = 1.0;
-          audio.play().catch((err) => {
-            // Ignore minor benign playback alerts
-            console.log("[AudioRelay] Direct play deferred:", err.message);
-          });
-        } catch (audioErr) {
-          console.warn("[AudioRelay] Audio element builder failed:", audioErr);
-        }
+        // Socket custom audio chunk disabled - rely entirely on standard, high-quality WebRTC audio stream to prevent echo
       } else {
         enqueueSignal(signal, from);
       }
@@ -799,7 +744,7 @@ export default function App() {
 
     const pc = new RTCPeerConnection({
       iceServers: customIceServers,
-      iceTransportPolicy: "relay"
+      iceTransportPolicy: "all"
     });
 
     pcRef.current = pc;
