@@ -89,9 +89,9 @@ export default function VideoPlayer({
   const remoteVideoCallback = useCallback((el: HTMLVideoElement | null) => {
     remoteVideoRef.current = el;
     if (el && remoteStream) {
-      el.muted = true; // FORCE MUTED TO ELIMINATE DUPLICATE AUDIO PLAYBACK PATHS
+      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH VIDEO
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref (Muted)");
+        console.log("[VideoPlayer] Binding remoteStream to video element via callback ref (Unmuted)");
         el.srcObject = remoteStream;
       }
       el.play()
@@ -99,7 +99,7 @@ export default function VideoPlayer({
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Local muted video play failed inside callback ref: ", err);
+          console.warn("[VideoPlayer] Remote video play failed inside callback ref: ", err);
         });
     }
   }, [remoteStream]);
@@ -201,9 +201,9 @@ export default function VideoPlayer({
   useEffect(() => {
     const el = remoteVideoRef.current;
     if (el && remoteStream) {
-      el.muted = true; // FORCE MUTED TO ELIMINATE DUPLICATE AUDIO PLAYBACK PATHS
+      el.muted = false; // MUST UNMUTE TO HEAR STRANGER VOICE THROUGH VIDEO
       if (el.srcObject !== remoteStream) {
-        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect (Muted)");
+        console.log("[VideoPlayer] Binding remoteStream to video element via useEffect (Unmuted)");
         el.srcObject = remoteStream;
       }
       el.play()
@@ -211,7 +211,7 @@ export default function VideoPlayer({
           setAutoplayBlocked(false);
         })
         .catch((err) => {
-          console.warn("[VideoPlayer] Local muted video play failed inside useEffect: ", err);
+          console.warn("[VideoPlayer] Remote video play failed inside useEffect: ", err);
         });
     } else {
       setAutoplayBlocked(false);
@@ -408,6 +408,28 @@ export default function VideoPlayer({
             </button>
           )}
         </div>
+
+        {/* Hidden native audio tag to play the remote voice stream */}
+        {isPaired && remoteStream && (
+          <audio
+            ref={(audioEl) => {
+              if (audioEl) {
+                audioEl.muted = false;
+                if (audioEl.srcObject !== remoteStream) {
+                  console.log("[VoiceMode] Binding remote voice stream to audio element");
+                  audioEl.srcObject = remoteStream;
+                }
+                audioEl.play().catch((err) => {
+                  console.warn("[VoiceMode] Inline audio play failed: ", err);
+                });
+              }
+            }}
+            autoPlay
+            playsInline
+            controls={false}
+            className="hidden"
+          />
+        )}
       </div>
     );
   }
@@ -489,7 +511,7 @@ export default function VideoPlayer({
             ref={remoteVideoCallback}
             autoPlay
             playsInline
-            muted={true}
+            muted={false}
             className="w-full h-full object-cover bg-slate-950"
           />
         ) : isPaired && remoteVideoFrame ? (

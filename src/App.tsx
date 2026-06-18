@@ -105,7 +105,7 @@ export default function App() {
   const appStateRef = useRef<AppState>(appState);
 
   useEffect(() => {
-    async function loadGithubIceServers() {
+    const loadGithubIceServers = () => {
       const fallbackServers: RTCIceServer[] = [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
@@ -124,55 +124,9 @@ export default function App() {
           credential: "openrelayproject"
         }
       ];
-
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s fast abort timeout
-
-        const res = await fetch("https://raw.githubusercontent.com/hook007/free-stun-turn-servers/master/turn.txt", { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error("HTTP error " + res.status);
-        const text = await res.text();
-        const lines = text.split("\n");
-        const parsed: RTCIceServer[] = [];
-        
-        parsed.push({ urls: "stun:stun.l.google.com:19302" });
-        parsed.push({ urls: "stun:stun1.l.google.com:19302" });
-        parsed.push({ urls: "stun:stun2.l.google.com:19302" });
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith("#")) continue;
-          
-          const parts = trimmed.split("|");
-          if (parts.length >= 3) {
-            parsed.push({
-              urls: parts[0].trim(),
-              username: parts[1].trim(),
-              credential: parts[2].trim()
-            });
-          } else if (trimmed.includes("@")) {
-            const partsAt = trimmed.split("@");
-            if (partsAt.length === 2 && partsAt[0].startsWith("turn:")) {
-              const auth = partsAt[0].substring(5); // remove 'turn:'
-              const authParts = auth.split(":");
-              if (authParts.length === 2) {
-                parsed.push({
-                  urls: `turn:${partsAt[1].trim()}`,
-                  username: authParts[0],
-                  credential: authParts[1]
-                });
-              }
-            }
-          }
-        }
-        console.log("[WebRTC] Loaded", parsed.length - 3, "relay servers from hook007 open-source GitHub registry.");
-        iceServersRef.current = parsed.length > 3 ? parsed : fallbackServers;
-      } catch (err) {
-        console.warn("[WebRTC] Failed to load open-source GitHub turn servers, using high-authority fallback. Error:", err);
-        iceServersRef.current = fallbackServers;
-      }
-    }
+      console.log("[WebRTC] Initialized fast, high-availability STUN and TURN configurations.");
+      iceServersRef.current = fallbackServers;
+    };
     loadGithubIceServers();
   }, []);
 
@@ -1536,65 +1490,9 @@ export default function App() {
   };
 
   const playRemoteAudioStream = (stream: MediaStream) => {
-    const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      console.log("[Audio] No remote audio tracks detected.");
-      destroyRemoteAudioElement();
-      lastPlayedAudioTrackIdsRef.current = [];
-      return;
-    }
-
-    const currentTrackIds = audioTracks.map((t) => t.id).sort();
-    const lastTrackIds = lastPlayedAudioTrackIdsRef.current;
-    
-    const isSameAudio = currentTrackIds.length === lastTrackIds.length &&
-                        currentTrackIds.every((id, idx) => id === lastTrackIds[idx]);
-
-    if (isSameAudio && remoteAudioElementRef.current) {
-      console.log("[Audio] Same audio tracks already playing. Skipping duplication/re-creation.");
-      return;
-    }
-
-    // Destroy any existing remote audio element first to ensure exactly single-play execution
-    destroyRemoteAudioElement();
-
-    lastPlayedAudioTrackIdsRef.current = currentTrackIds;
-    console.log(`[Audio] Playing remote voice stream: containing ${audioTracks.length} audio tracks.`);
-    const audioOnlyStream = new MediaStream(audioTracks);
-
-    const audioEl = document.createElement("audio");
-    audioEl.id = "webrtc-remote-audio";
-    audioEl.autoplay = true;
-    (audioEl as any).playsInline = true;
-    audioEl.muted = false;
-    audioEl.srcObject = audioOnlyStream;
-    remoteAudioElementRef.current = audioEl;
-    document.body.appendChild(audioEl);
-
-    audioEl.play()
-      .then(() => {
-        console.log("[Audio] WebRTC remote stream audio initiated success.");
-      })
-      .catch((err) => {
-        console.warn("[Audio] Audio playback gesture-blocked. Registering automatic unmute triggers...", err);
-        const resumeAudio = () => {
-          if (remoteAudioElementRef.current === audioEl) {
-            audioEl.play()
-              .then(() => {
-                console.log("[Audio] Unblocked audio stream successfully of stranger via click handshake.");
-                cleanup();
-              })
-              .catch((e) => console.warn("[Audio] Secondary playback activation failed:", e));
-          } else {
-            cleanup();
-          }
-        };
-        const events = ["click", "keydown", "mousedown", "touchstart"];
-        const cleanup = () => {
-          events.forEach((ev) => document.removeEventListener(ev, resumeAudio));
-        };
-        events.forEach((ev) => document.addEventListener(ev, resumeAudio, { passive: true }));
-      });
+    // We now play remote audio directly unmuted inside the VideoPlayer component.
+    // This completely eliminates duplicate playback echo, delay leakage, and browser security autoplay blocks.
+    console.log("[Audio] Remote stream detected. Audio playback is handled unmuted natively by the VideoPlayer component.");
   };
 
   const safeSetRemoteStream = (newStream: MediaStream | null) => {
