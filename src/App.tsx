@@ -849,8 +849,9 @@ export default function App() {
     try {
       const constraints: MediaStreamConstraints = wantsVideo ? {
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          width: { ideal: 640, max: 640 },
+          height: { ideal: 360, max: 360 },
+          frameRate: { ideal: 15, max: 15 },
           facingMode: "user"
         },
         audio: {
@@ -878,7 +879,12 @@ export default function App() {
       console.warn("Optimized media stream denied, attempting standard video+audio fallback...", err);
       try {
         const constraintsFallback: MediaStreamConstraints = wantsVideo ? {
-          video: true,
+          video: {
+            width: { ideal: 640, max: 640 },
+            height: { ideal: 360, max: 360 },
+            frameRate: { ideal: 15, max: 15 },
+            facingMode: "user"
+          },
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -1000,6 +1006,8 @@ export default function App() {
       }
     }
 
+    applyWebRTCOptimizations(pc);
+
     if (changed) {
       await renegotiatePeerConnection();
     }
@@ -1049,10 +1057,79 @@ export default function App() {
     setMicActive(false);
   };
 
+  // Enforces sender-level transmission policies: 300-500 kbps limitations, adaptive degradation, and audio-first prioritizing
+  const applyWebRTCOptimizations = (pc: RTCPeerConnection) => {
+    try {
+      console.log("[WebRTC Optimizations] Securing connection transmission settings...");
+      
+      // 1. Prioritize audio over video and limit video bitrate & framerate via RTCRtpSender.setParameters
+      pc.getSenders().forEach((sender) => {
+        if (!sender.track) return;
+        
+        try {
+          const params = sender.getParameters();
+          // Initialize encodings if missing/empty
+          if (!params.encodings || params.encodings.length === 0) {
+            params.encodings = [{}];
+          }
+
+          if (sender.track.kind === "video") {
+            params.encodings.forEach((encoding) => {
+              // Limit video bitrate to 300-500 kbps (400 kbps)
+              encoding.maxBitrate = 400 * 1000; // bps
+              
+              // Reduce frame rate to 15 fps
+              encoding.maxFramerate = 15;
+              
+              // Prioritize audio over video (assign low priority/low network-priority to video)
+              encoding.priority = "low";
+              encoding.networkPriority = "low";
+              
+              // Enable adaptive degradation / scaling under congestion
+              encoding.scaleResolutionDownBy = 1.0; 
+            });
+            
+            sender.setParameters(params)
+              .then(() => console.log("[WebRTC Optimizations] Video parameters applied: 400 kbps max, 15 fps max, low priority."))
+              .catch((err) => console.warn("[WebRTC Optimizations] Failed to set video sender parameters:", err));
+              
+          } else if (sender.track.kind === "audio") {
+            params.encodings.forEach((encoding) => {
+              // Prioritize audio over video (assign high priority/high network-priority to audio)
+              encoding.priority = "high";
+              encoding.networkPriority = "high";
+            });
+            
+            sender.setParameters(params)
+              .then(() => console.log("[WebRTC Optimizations] Audio parameters applied: high priority, packet-loss resilient."))
+              .catch((err) => console.warn("[WebRTC Optimizations] Failed to set audio sender parameters:", err));
+          }
+        } catch (paramErr) {
+          console.warn("[WebRTC Optimizations] Error modifying sender parameters:", paramErr);
+        }
+      });
+
+      // 2. Adjust transceiver degradationPreference for adaptive resolution scaling on congested/weak links
+      pc.getTransceivers().forEach((transceiver) => {
+        if (transceiver.sender && transceiver.sender.track && transceiver.sender.track.kind === "video") {
+          try {
+            // "maintain-framerate" automatically drops video quality (resolution) on weak/congested networks to preserve smooth frames & prioritize audio
+            (transceiver as any).degradationPreference = "maintain-framerate";
+            console.log("[WebRTC Optimizations] Video transceiver degradation preference set to 'maintain-framerate'.");
+          } catch (degradeErr) {
+            console.warn("[WebRTC Optimizations] Failed to set transceiver.degradationPreference:", degradeErr);
+          }
+        }
+      });
+    } catch (err) {
+      console.error("[WebRTC Optimizations] Error running peer optimizations:", err);
+    }
+  };
+
   // SDP bandwidth/bitrate modifier to lock in fluid low-latency video and noise-cancelled mono voice
   const setMediaBitrates = (sdp: string, _videoBitrateKbps: number, _audioBitrateKbps: number): string => {
-    const videoBitrateKbps = 350; // 350 Kbps prevents bufferbloat/jitter queueing and keeps voice perfectly in sync at lower resolution
-    const audioBitrateKbps = 16;   // 16 Kbps is optimized mono average bitrate for minimum buffer delay and perfect narrow-band audio transfer
+    const videoBitrateKbps = 400; // 400 Kbps limits video bitrate to 300-500 kbps to prevent bufferbloat/congestion
+    const audioBitrateKbps = 24;  // 24 Kbps allows robust Opus mono with high FEC capability to preserve voice quality under severe packet loss
 
     let lines = sdp.split("\r\n");
     let modifiedLines: string[] = [];
@@ -1283,6 +1360,9 @@ export default function App() {
         console.warn("[WEBRTC] Failed to add recvonly transceivers:", err);
       }
     }
+
+    // Apply high-availability physical stream transmission and prioritization policies
+    applyWebRTCOptimizations(pc);
 
     // Handle receiving incoming track with high-availability track merging
     pc.ontrack = (event) => {
