@@ -303,12 +303,12 @@ export default function App() {
 
     const startRecordingBurst = () => {
       const pc = pcRef.current;
-      const isWebRTCActive = pc && (
+      const isWebRTCActive = (pc && (
         pc.connectionState === "connected" || 
         pc.iceConnectionState === "connected" || 
         pc.connectionState === "completed" || 
         pc.iceConnectionState === "completed"
-      );
+      )) || !!remoteStream;
       if (!audioLoopActive || !micActive || !localStream || isWebRTCActive) {
         return;
       }
@@ -346,12 +346,12 @@ export default function App() {
 
         recorder.onstop = () => {
           const pc = pcRef.current;
-          const isWebRTCActiveNow = pc && (
+          const isWebRTCActiveNow = (pc && (
             pc.connectionState === "connected" || 
             pc.iceConnectionState === "connected" || 
             pc.connectionState === "completed" || 
             pc.iceConnectionState === "completed"
-          );
+          )) || !!remoteStream;
 
           if (chunks.length > 0 && !isWebRTCActiveNow) {
             const audioBlob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
@@ -361,12 +361,12 @@ export default function App() {
               if (socket && partnerIdRef.current === currentPartner) {
                 // Double check WebRTC state right before sending
                 const finalPc = pcRef.current;
-                const finalWebRTCActive = finalPc && (
+                const finalWebRTCActive = (finalPc && (
                   finalPc.connectionState === "connected" || 
                   finalPc.iceConnectionState === "connected" || 
                   finalPc.connectionState === "completed" || 
                   finalPc.iceConnectionState === "completed"
-                );
+                )) || !!remoteStream;
                 if (!finalWebRTCActive) {
                   socket.emit("webrtc-signal", {
                     to: currentPartner,
@@ -686,12 +686,12 @@ export default function App() {
   // Process sequentially queued base64 voice slices to eliminate playback overlapping stutter
   const playNextAudioQueueChunk = () => {
     const pc = pcRef.current;
-    const isWebRTCActive = pc && (
+    const isWebRTCActive = (pc && (
       pc.connectionState === "connected" || 
       pc.iceConnectionState === "connected" || 
       pc.connectionState === "completed" || 
       pc.iceConnectionState === "completed"
-    );
+    )) || !!remoteStream;
     if (isWebRTCActive) {
       stopAndClearFallbackAudio();
       return;
@@ -818,24 +818,24 @@ export default function App() {
       if (signal && signal.mediaFrame) {
         // Only set the fallback remote frame if standard WebRTC P2P is not yet active
         const pc = pcRef.current;
-        const isWebRTCActive = pc && (
+        const isWebRTCActive = (pc && (
           pc.connectionState === "connected" || 
           pc.iceConnectionState === "connected" || 
           pc.connectionState === "completed" || 
           pc.iceConnectionState === "completed"
-        );
+        )) || !!remoteStream;
         if (!isWebRTCActive) {
           setRemoteVideoFrame(signal.mediaFrame);
         }
       } else if (signal && signal.mediaAudioChunk) {
         // Enqueue fallback audio chunks sequentially if standard WebRTC status is not yet active
         const pc = pcRef.current;
-        const isWebRTCActive = pc && (
+        const isWebRTCActive = (pc && (
           pc.connectionState === "connected" || 
           pc.iceConnectionState === "connected" || 
           pc.connectionState === "completed" || 
           pc.iceConnectionState === "completed"
-        );
+        )) || !!remoteStream;
         if (!isWebRTCActive) {
           audioQueueRef.current.push(signal.mediaAudioChunk);
           if (!isPlayingAudioQueueRef.current) {
