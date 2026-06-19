@@ -102,6 +102,7 @@ export default function App() {
   const isBotActiveRef = useRef<boolean>(false);
   const botWillReplyRef = useRef<boolean>(false);
   const botMessagesSentRef = useRef<number>(0);
+  const botMaxMessagesRef = useRef<number>(1);
   const botUsedPoolsRef = useRef<number[]>([]);
   const botTimerRef = useRef<any>(null);
   const botTypingTimeoutRef = useRef<any>(null);
@@ -293,6 +294,7 @@ export default function App() {
       isBotActiveRef.current = false;
       botWillReplyRef.current = false;
       botMessagesSentRef.current = 0;
+      botMaxMessagesRef.current = 1;
       botUsedPoolsRef.current = [];
       if (botTimerRef.current) clearTimeout(botTimerRef.current);
       if (botTypingTimeoutRef.current) clearTimeout(botTypingTimeoutRef.current);
@@ -1266,6 +1268,7 @@ export default function App() {
     isBotActiveRef.current = false;
     botWillReplyRef.current = false;
     botMessagesSentRef.current = 0;
+    botMaxMessagesRef.current = 1;
     botUsedPoolsRef.current = [];
     if (botTimerRef.current) {
       clearTimeout(botTimerRef.current);
@@ -1279,7 +1282,7 @@ export default function App() {
   };
 
   const sendBotMessageFromPool = (poolNum: number) => {
-    if (!isBotActiveRef.current || appStateRef.current !== "paired" || botMessagesSentRef.current >= 2) {
+    if (!isBotActiveRef.current || appStateRef.current !== "paired" || botMessagesSentRef.current >= botMaxMessagesRef.current) {
       return;
     }
 
@@ -1358,6 +1361,7 @@ export default function App() {
     
     botWillReplyRef.current = willReply;
     botMessagesSentRef.current = 0;
+    botMaxMessagesRef.current = Math.random() < 0.5 ? 1 : 2;
     botUsedPoolsRef.current = [];
 
     // Increment session bot count
@@ -1480,24 +1484,43 @@ export default function App() {
     addMessage("you", text);
 
     if (isBotActiveRef.current) {
-      // Handle bot reply interaction if bot is configured to reply
-      if (botWillReplyRef.current && botMessagesSentRef.current < 2) {
+      if (botWillReplyRef.current) {
         if (botTimerRef.current) clearTimeout(botTimerRef.current);
         if (botTypingTimeoutRef.current) clearTimeout(botTypingTimeoutRef.current);
         setStrangerIsTyping(false);
 
-        botTimerRef.current = setTimeout(() => {
-          if (botMessagesSentRef.current === 0) {
-            // First message: choose random pool [1, 2, 3, 4]
-            const firstPool = Math.floor(Math.random() * 4) + 1;
-            sendBotMessageFromPool(firstPool);
-          } else if (botMessagesSentRef.current === 1) {
-            // Second message: choose from [2, 3, 4] excluding the first pool
-            const unusedPools = [2, 3, 4].filter(p => !botUsedPoolsRef.current.includes(p));
-            const secondPool = unusedPools[Math.floor(Math.random() * unusedPools.length)];
-            sendBotMessageFromPool(secondPool);
-          }
-        }, 1200 + Math.random() * 600);
+        if (botMessagesSentRef.current < botMaxMessagesRef.current) {
+          botTimerRef.current = setTimeout(() => {
+            if (botMessagesSentRef.current === 0) {
+              const firstPool = Math.floor(Math.random() * 4) + 1;
+              sendBotMessageFromPool(firstPool);
+            } else if (botMessagesSentRef.current === 1) {
+              const unusedPools = [2, 3, 4].filter(p => !botUsedPoolsRef.current.includes(p));
+              const secondPool = unusedPools[Math.floor(Math.random() * unusedPools.length)];
+              sendBotMessageFromPool(secondPool);
+            }
+          }, 1200 + Math.random() * 600);
+        } else {
+          // Bot has met its designated limit of messages (1 or 2).
+          // We waited for the user to reply one message after that. Now we end the chat!
+          botTimerRef.current = setTimeout(() => {
+            if (isBotActiveRef.current && appStateRef.current === "paired") {
+              addSystemMessage("Stranger has disconnected.");
+              cleanPeerConnection();
+              trackEvent("match_disconnected", { mode: "text" });
+              if (autoConnectRef.current && agreedToTermsRef.current) {
+                setTimeout(() => {
+                  if (appStateRef.current === "searching" || appStateRef.current === "idle") {
+                    handleSkipMatch();
+                  }
+                }, 1000);
+              } else {
+                setAppState("idle");
+                addSystemMessage("Connection paused. Refine your interests or click Resume/Connect to start matching.");
+              }
+            }
+          }, 1500 + Math.random() * 800);
+        }
       }
     } else {
       socketRef.current?.emit("chat-message", { text });
