@@ -1872,7 +1872,7 @@ export default function App() {
                 )}
 
                 {/* Chat pane (right column or full width depending on mode) */}
-                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-auto lg:h-full w-full flex flex-col min-h-0 overflow-hidden"}>
+                <div className={mode === "text" ? "flex-grow flex-1 flex flex-col h-full w-full bg-slate-50 min-h-0 overflow-hidden" : "flex-grow flex-1 h-0 min-h-0 lg:h-full w-full flex flex-col overflow-hidden"}>
                   <ChatPanel
                     messages={messages}
                     isSearching={appState === "searching"}
