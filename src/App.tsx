@@ -219,6 +219,49 @@ export default function App() {
     }
   }, [appState]);
 
+  // Dynamic Social Bar Auto-Positioning Over Header Ad
+  useEffect(() => {
+    const handleReposition = () => {
+      // Look at direct body children divs
+      const elements = Array.from(document.body.children) as HTMLElement[];
+      elements.forEach((el) => {
+        if (el.tagName === 'DIV') {
+          const style = window.getComputedStyle(el);
+          const isFixed = style.position === 'fixed' || style.position === 'absolute';
+          const zIndex = parseInt(style.zIndex || '0', 10);
+          
+          if (isFixed && zIndex > 50) {
+            // Check if it's the dynamic ad widget (not our app's React root structure)
+            if (el.id !== 'root' && !el.id.includes('vite') && !el.id.includes('react')) {
+              // Position it right over the horizontal top center header ad!
+              el.style.setProperty('right', 'auto', 'important');
+              el.style.setProperty('left', '50%', 'important');
+              el.style.setProperty('transform', 'translateX(-50%)', 'important');
+              el.style.setProperty('top', '8px', 'important');
+              el.style.setProperty('bottom', 'auto', 'important');
+              el.style.setProperty('margin', '0 auto', 'important');
+              el.style.setProperty('z-index', '99999', 'important');
+            }
+          }
+        }
+      });
+    };
+
+    // Run immediately and every 200ms to intercept and fix position changes
+    const interval = setInterval(handleReposition, 200);
+
+    // Also observe mutations in body to capture injections immediately
+    const observer = new MutationObserver(() => {
+      handleReposition();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+
+    return () => {
+      clearInterval(interval);
+      observer.disconnect();
+    };
+  }, []);
+
   // Auto-connect to global socket statistics update on layout spawn
   useEffect(() => {
     initGA();
@@ -1273,7 +1316,36 @@ export default function App() {
     partnerIdRef.current = BotId;
     setPartnerId(BotId);
     
-    // Determine common interests with bot (we can copy a random 1 of ours if we have interests, or leave empty)
+    // Set appState to paired
+    setAppState("paired");
+    isBotActiveRef.current = true;
+
+    // A. For video mode: bot keeps skipping the user and automatically ends from the bot side after connecting
+    if (mode === "video") {
+      addSystemMessage("stranger connected");
+      
+      // Auto-skip/disconnect after a brief realistic delay (1.2 to 2.2 seconds)
+      botTimerRef.current = setTimeout(() => {
+        if (isBotActiveRef.current && appStateRef.current === "paired") {
+          addSystemMessage("Stranger has disconnected.");
+          cleanPeerConnection();
+          trackEvent("match_disconnected", { mode: "video" });
+          if (autoConnectRef.current && agreedToTermsRef.current) {
+            setTimeout(() => {
+              if (appStateRef.current === "searching" || appStateRef.current === "idle") {
+                handleSkipMatch();
+              }
+            }, 1000);
+          } else {
+            setAppState("idle");
+            addSystemMessage("Connection paused. Refine your interests or click Resume/Connect to start matching.");
+          }
+        }
+      }, 1200 + Math.random() * 1000);
+      return;
+    }
+
+    // B. For text mode: Determine common interests with bot (copy 1 from our tags if any)
     let common: string[] = [];
     if (interests && interests.length > 0) {
       const randInt = interests[Math.floor(Math.random() * interests.length)];
@@ -1281,16 +1353,8 @@ export default function App() {
     }
     setCommonInterests(common);
 
-    // Set appState to paired
-    setAppState("paired");
-    isBotActiveRef.current = true;
-
-    // Check if bot should reply (1 out of 6 per session)
-    if (botReplyIndexInCycleRef.current === -1) {
-      botReplyIndexInCycleRef.current = Math.floor(Math.random() * 6);
-    }
-    const currentCount = botConnectionSessionCountRef.current;
-    const willReply = (currentCount % 6) === botReplyIndexInCycleRef.current;
+    // Answer 60% of the connections in a session
+    const willReply = Math.random() < 0.60;
     
     botWillReplyRef.current = willReply;
     botMessagesSentRef.current = 0;
@@ -1298,10 +1362,6 @@ export default function App() {
 
     // Increment session bot count
     botConnectionSessionCountRef.current += 1;
-    // Re-roll reply index once cycle of 6 is complete
-    if (botConnectionSessionCountRef.current % 6 === 0) {
-      botReplyIndexInCycleRef.current = Math.floor(Math.random() * 6);
-    }
 
     addSystemMessage("stranger connected");
 
