@@ -98,6 +98,16 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
 
+  // Client-side genuine bot routing states & thresholds
+  const isBotActiveRef = useRef<boolean>(false);
+  const botWillReplyRef = useRef<boolean>(false);
+  const botMessagesSentRef = useRef<number>(0);
+  const botUsedPoolsRef = useRef<number[]>([]);
+  const botTimerRef = useRef<any>(null);
+  const botTypingTimeoutRef = useRef<any>(null);
+  const botConnectionSessionCountRef = useRef<number>(0);
+  const botReplyIndexInCycleRef = useRef<number>(-1);
+
   useEffect(() => {
     appStateRef.current = appState;
   }, [appState]);
@@ -113,6 +123,28 @@ export default function App() {
   useEffect(() => {
     autoConnectRef.current = autoConnect;
   }, [autoConnect]);
+
+  // Synchronized organic floating stranger online count between 400 and 600
+  useEffect(() => {
+    const updateCount = () => {
+      const now = Date.now();
+      const baseTime = now / 1000;
+      // Compose multiple slow/medium/fast sine waves so it fluctuates organically
+      const slowWave = Math.sin(baseTime / 1200);   // Slow 20 min cycles
+      const mediumWave = Math.sin(baseTime / 150) * 0.25; // Medium 2.5 min cycles
+      const fastWave = Math.sin(baseTime / 7) * 0.03;      // Subtle 7-sec jitter
+      const combined = (slowWave + mediumWave + fastWave) / 1.28; // Scale to ~ [-1, 1]
+
+      // Map combined wave to [400, 600] interval
+      const calculatedVal = 400 + Math.floor(((combined + 1) / 2) * 200);
+      const boundedVal = Math.min(600, Math.max(400, calculatedVal));
+      setOnlineCount(boundedVal);
+    };
+
+    updateCount();
+    const intervalId = setInterval(updateCount, 1000);
+    return () => clearInterval(intervalId);
+  }, []);
 
   // Auto-connect to global socket statistics update on layout spawn
   useEffect(() => {
@@ -137,6 +169,39 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [appState, interests]);
+
+  // Handle client-side genuine bot match fallback (5 seconds)
+  useEffect(() => {
+    if (appState === "searching") {
+      // Clear previous bot states & timers securely
+      isBotActiveRef.current = false;
+      botWillReplyRef.current = false;
+      botMessagesSentRef.current = 0;
+      botUsedPoolsRef.current = [];
+      if (botTimerRef.current) clearTimeout(botTimerRef.current);
+      if (botTypingTimeoutRef.current) clearTimeout(botTypingTimeoutRef.current);
+      setStrangerIsTyping(false);
+
+      const timer = setTimeout(() => {
+        // 5 seconds elapsed and still searching! Route connection internally to a bot.
+        if (appStateRef.current === "searching") {
+          console.log("[MatchingFallback] 5s elapsed without real stranger. Activating secure bot connection.");
+          triggerBotConnection();
+        }
+      }, 5000);
+
+      botTimerRef.current = timer;
+      return () => {
+        clearTimeout(timer);
+      };
+    } else {
+      // If we paired with a real stranger before 5s timeout, clear any pending bot queue
+      if (botTimerRef.current) {
+        clearTimeout(botTimerRef.current);
+        botTimerRef.current = null;
+      }
+    }
+  }, [appState]);
 
   // Seamless Custom Socket-based Media Relaying & Fallback Engine
   useEffect(() => {
@@ -487,9 +552,9 @@ export default function App() {
     });
     socketRef.current = socket;
 
-    // Receive global user counts
+    // Receive global user counts (synchronized floating count takes precedence client-side)
     socket.on("stats-update", ({ count }: { count: number }) => {
-      setOnlineCount(count);
+      // Intentionally bypassed to guarantee synchronized 400-600 floating count
     });
 
     // Match established callback
@@ -1071,6 +1136,101 @@ export default function App() {
     pendingRemoteCandidatesRef.current = [];
     setWebrtcStatus("idle");
     nextPlayTimeRef.current = 0;
+
+    // Secure Bot session teardown
+    isBotActiveRef.current = false;
+    botWillReplyRef.current = false;
+    botMessagesSentRef.current = 0;
+    botUsedPoolsRef.current = [];
+    if (botTimerRef.current) {
+      clearTimeout(botTimerRef.current);
+      botTimerRef.current = null;
+    }
+    if (botTypingTimeoutRef.current) {
+      clearTimeout(botTypingTimeoutRef.current);
+      botTypingTimeoutRef.current = null;
+    }
+    setStrangerIsTyping(false);
+  };
+
+  const sendBotMessageFromPool = (poolNum: number) => {
+    if (!isBotActiveRef.current || appStateRef.current !== "paired" || botMessagesSentRef.current >= 2) {
+      return;
+    }
+
+    const BOT_POOLS: Record<number, string[]> = {
+      1: ["hi", "hii", "hello", "hey"],
+      2: ["age", "age?", "ur age"],
+      3: ["asl", "asl?", "ur asl?"],
+      4: ["u frm", "frm", "from?", "u from"]
+    };
+
+    const pool = BOT_POOLS[poolNum];
+    if (!pool) return;
+    const text = pool[Math.floor(Math.random() * pool.length)];
+
+    setStrangerIsTyping(true);
+    botTypingTimeoutRef.current = setTimeout(() => {
+      setStrangerIsTyping(false);
+      
+      // Double check active state
+      if (!isBotActiveRef.current || appStateRef.current !== "paired") return;
+      
+      addMessage("stranger", text);
+      botMessagesSentRef.current += 1;
+      botUsedPoolsRef.current.push(poolNum);
+    }, 1200 + Math.random() * 800);
+  };
+
+  const triggerBotConnection = () => {
+    // 1. Tell socket server to stop searching so we are private
+    socketRef.current?.emit("stop-search");
+
+    // 2. Setup bot parameters
+    const BotId = `bot_${Math.random().toString(36).substring(7)}`;
+    partnerIdRef.current = BotId;
+    setPartnerId(BotId);
+    
+    // Determine common interests with bot (we can copy a random 1 of ours if we have interests, or leave empty)
+    let common: string[] = [];
+    if (interests && interests.length > 0) {
+      const randInt = interests[Math.floor(Math.random() * interests.length)];
+      common = [randInt];
+    }
+    setCommonInterests(common);
+
+    // Set appState to paired
+    setAppState("paired");
+    isBotActiveRef.current = true;
+
+    // Check if bot should reply (1 out of 6 per session)
+    if (botReplyIndexInCycleRef.current === -1) {
+      botReplyIndexInCycleRef.current = Math.floor(Math.random() * 6);
+    }
+    const currentCount = botConnectionSessionCountRef.current;
+    const willReply = (currentCount % 6) === botReplyIndexInCycleRef.current;
+    
+    botWillReplyRef.current = willReply;
+    botMessagesSentRef.current = 0;
+    botUsedPoolsRef.current = [];
+
+    // Increment session bot count
+    botConnectionSessionCountRef.current += 1;
+    // Re-roll reply index once cycle of 6 is complete
+    if (botConnectionSessionCountRef.current % 6 === 0) {
+      botReplyIndexInCycleRef.current = Math.floor(Math.random() * 6);
+    }
+
+    addSystemMessage("stranger connected");
+
+    if (willReply) {
+      // Auto greet after a natural delay
+      botTimerRef.current = setTimeout(() => {
+        // Choose any pool [1, 2, 3, 4] for the first reply
+        const firstPool = Math.floor(Math.random() * 4) + 1;
+        sendBotMessageFromPool(firstPool);
+      }, 2500);
+    }
   };
 
   // Interest list management
@@ -1176,7 +1336,31 @@ export default function App() {
   const handleSendMessage = (text: string) => {
     if (!partnerIdRef.current) return;
     addMessage("you", text);
-    socketRef.current?.emit("chat-message", { text });
+
+    if (isBotActiveRef.current) {
+      // Handle bot reply interaction if bot is configured to reply
+      if (botWillReplyRef.current && botMessagesSentRef.current < 2) {
+        if (botTimerRef.current) clearTimeout(botTimerRef.current);
+        if (botTypingTimeoutRef.current) clearTimeout(botTypingTimeoutRef.current);
+        setStrangerIsTyping(false);
+
+        botTimerRef.current = setTimeout(() => {
+          if (botMessagesSentRef.current === 0) {
+            // First message: choose random pool [1, 2, 3, 4]
+            const firstPool = Math.floor(Math.random() * 4) + 1;
+            sendBotMessageFromPool(firstPool);
+          } else if (botMessagesSentRef.current === 1) {
+            // Second message: choose from [2, 3, 4] excluding the first pool
+            const unusedPools = [2, 3, 4].filter(p => !botUsedPoolsRef.current.includes(p));
+            const secondPool = unusedPools[Math.floor(Math.random() * unusedPools.length)];
+            sendBotMessageFromPool(secondPool);
+          }
+        }, 1200 + Math.random() * 600);
+      }
+    } else {
+      socketRef.current?.emit("chat-message", { text });
+    }
+
     trackEvent("send_message", { 
       mode, 
       char_count: text.length, 
@@ -1186,6 +1370,7 @@ export default function App() {
 
   const handleTypingStatus = (isTyping: boolean) => {
     if (!partnerIdRef.current) return;
+    if (isBotActiveRef.current) return; // Do not emit to socket for bots
     socketRef.current?.emit("typing", { isTyping });
   };
 
