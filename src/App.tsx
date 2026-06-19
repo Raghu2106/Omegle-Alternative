@@ -107,6 +107,7 @@ export default function App() {
   const botTypingTimeoutRef = useRef<any>(null);
   const botConnectionSessionCountRef = useRef<number>(0);
   const botReplyIndexInCycleRef = useRef<number>(-1);
+  const realUserCountRef = useRef<number>(1);
 
   useEffect(() => {
     appStateRef.current = appState;
@@ -124,27 +125,99 @@ export default function App() {
     autoConnectRef.current = autoConnect;
   }, [autoConnect]);
 
-  // Synchronized organic floating stranger online count between 400 and 600
+  // Synchronized organic floating stranger online count between 400 and 600 (incorporating slow/diurnal cycles and real active users)
   useEffect(() => {
     const updateCount = () => {
       const now = Date.now();
-      const baseTime = now / 1000;
-      // Compose multiple slow/medium/fast sine waves so it fluctuates organically
-      const slowWave = Math.sin(baseTime / 1200);   // Slow 20 min cycles
-      const mediumWave = Math.sin(baseTime / 150) * 0.25; // Medium 2.5 min cycles
-      const fastWave = Math.sin(baseTime / 7) * 0.03;      // Subtle 7-sec jitter
-      const combined = (slowWave + mediumWave + fastWave) / 1.28; // Scale to ~ [-1, 1]
+      const minutes = now / 60000;
+      // Ultra-slow, smooth waves (no fast jitter!)
+      const slowWave = Math.sin(minutes / 45);     // 45-minute cycle
+      const diurnalWave = Math.cos(minutes / 180); // 3-hour cycle
+      const combined = (slowWave * 0.6 + diurnalWave * 0.4); // ranges between -1 and 1
 
-      // Map combined wave to [400, 600] interval
-      const calculatedVal = 400 + Math.floor(((combined + 1) / 2) * 200);
-      const boundedVal = Math.min(600, Math.max(400, calculatedVal));
+      // Base part safely ranges between 450 and 540
+      const baseFloat = 485 + Math.floor(combined * 40);
+
+      // Include active real user count
+      const totalCount = baseFloat + realUserCountRef.current;
+
+      // Realistic count with lower bound of 400 but no upper limit cap
+      const boundedVal = Math.max(400, totalCount);
       setOnlineCount(boundedVal);
     };
 
     updateCount();
-    const intervalId = setInterval(updateCount, 1000);
+    const intervalId = setInterval(updateCount, 10000); // realistic slow updates every 10 seconds!
     return () => clearInterval(intervalId);
   }, []);
+
+  // Popunder and Social Bar Ad Management System
+  useEffect(() => {
+    // 1. Popunder: only once per session, after 3 minutes (180,000ms)
+    const popunderTimer = setTimeout(() => {
+      const alreadyTriggered = sessionStorage.getItem('popunder_ad_triggered');
+      if (!alreadyTriggered) {
+        sessionStorage.setItem('popunder_ad_triggered', 'true');
+        const script = document.createElement("script");
+        script.src = "https://eternalwheeled.com/ea/42/41/ea424104c88749835d911a6401e9db6e.js";
+        script.async = true;
+        document.body.appendChild(script);
+        console.log("[AdManager] Popunder script loaded after 3 minutes.");
+      }
+    }, 180000);
+
+    // 2. Initial Social Bar load on app mount
+    const currentCount = parseInt(sessionStorage.getItem('social_bar_count_session') || '0', 10);
+    if (currentCount < 6) {
+      // Small timeout to ensure header elements are fully mounted in DOM
+      setTimeout(() => {
+        const oldScript = document.getElementById('social-bar-script');
+        if (oldScript) oldScript.remove();
+
+        const script = document.createElement("script");
+        script.id = 'social-bar-script';
+        script.src = "https://eternalwheeled.com/50/dd/f7/50ddf7c233c24a2a7a14e1ec61ca86cb.js";
+        script.async = true;
+
+        const parentContainer = document.getElementById('header-desktop-ad') || document.getElementById('header-mobile-ad') || document.body;
+        parentContainer.appendChild(script);
+
+        sessionStorage.setItem('social_bar_count_session', (currentCount + 1).toString());
+        console.log(`[AdManager] Social bar loaded on mount. Count: ${currentCount + 1}/6`);
+      }, 500);
+    }
+
+    return () => {
+      clearTimeout(popunderTimer);
+    };
+  }, []);
+
+  // Monitor appState changes to load Social Bar on transitions (up to 6 times total per session)
+  useEffect(() => {
+    if (appState === "searching" || appState === "paired") {
+      const currentCount = parseInt(sessionStorage.getItem('social_bar_count_session') || '0', 10);
+      if (currentCount < 6) {
+        // Small delay to let React DOM update classes & IDs
+        const stateTimer = setTimeout(() => {
+          const oldScript = document.getElementById('social-bar-script');
+          if (oldScript) oldScript.remove();
+
+          const script = document.createElement("script");
+          script.id = 'social-bar-script';
+          script.src = "https://eternalwheeled.com/50/dd/f7/50ddf7c233c24a2a7a14e1ec61ca86cb.js";
+          script.async = true;
+
+          const parentContainer = document.getElementById('header-desktop-ad') || document.getElementById('header-mobile-ad') || document.body;
+          parentContainer.appendChild(script);
+
+          sessionStorage.setItem('social_bar_count_session', (currentCount + 1).toString());
+          console.log(`[AdManager] Social bar loaded on state transition (${appState}). Count: ${currentCount + 1}/6`);
+        }, 1500);
+
+        return () => clearTimeout(stateTimer);
+      }
+    }
+  }, [appState]);
 
   // Auto-connect to global socket statistics update on layout spawn
   useEffect(() => {
@@ -552,9 +625,18 @@ export default function App() {
     });
     socketRef.current = socket;
 
-    // Receive global user counts (synchronized floating count takes precedence client-side)
+    // Receive global user counts (synchronized floating count takes precedence client-side and includes real count)
     socket.on("stats-update", ({ count }: { count: number }) => {
-      // Intentionally bypassed to guarantee synchronized 400-600 floating count
+      realUserCountRef.current = count;
+      // Force an immediate update
+      const now = Date.now();
+      const minutes = now / 60000;
+      const slowWave = Math.sin(minutes / 45);
+      const diurnalWave = Math.cos(minutes / 180);
+      const combined = (slowWave * 0.6 + diurnalWave * 0.4);
+      const baseFloat = 485 + Math.floor(combined * 40);
+      const totalCount = baseFloat + count;
+      setOnlineCount(Math.max(400, totalCount));
     });
 
     // Match established callback
@@ -1458,14 +1540,14 @@ export default function App() {
         </a>
 
         {/* Dynamic Horizontal Header Ad Placement - Desktop Only */}
-        <div className="hidden lg:flex flex-grow items-center justify-center max-w-[640px] h-[60px] mx-4 relative overflow-hidden select-none shrink-0">
+        <div id="header-desktop-ad" className="hidden lg:flex flex-grow items-center justify-center max-w-[640px] h-[60px] mx-4 relative overflow-hidden select-none shrink-0">
           <div className="scale-[0.7] transform origin-center">
             <AdContainer idKey="c7c1f20ab8894b1ce40d9f3165e0672a" width={728} height={90} className="border-0 bg-transparent" />
           </div>
         </div>
 
         {/* Global engagement & back action triggers */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-3 shrink-0 relative z-[9999] pointer-events-auto select-none">
           <div className="flex items-center gap-2 bg-[#f4f7f6] border border-slate-200/50 px-2.5 py-1 rounded-full shadow-xs">
             <Activity className="w-3 h-3 text-emerald-500 animate-pulse" />
             <span className="text-[11px] font-mono font-semibold text-slate-700">
@@ -1476,7 +1558,7 @@ export default function App() {
       </nav>
 
       {/* Dynamic Sub-Header Ad for Mobile & Tablet */}
-      <div className="lg:hidden w-full bg-slate-50 border-b border-slate-100 flex items-center justify-center h-[50px] sm:h-[60px] shrink-0 overflow-hidden select-none">
+      <div id="header-mobile-ad" className="lg:hidden w-full bg-slate-50 border-b border-slate-100 flex items-center justify-center h-[50px] sm:h-[60px] shrink-0 overflow-hidden select-none">
         <div className="flex items-center justify-center w-full">
           {/* Tablet/Medium Screen: 468x60 */}
           <div className="hidden sm:flex">
