@@ -101,6 +101,7 @@ export default function App() {
   // Client-side genuine bot routing states & thresholds
   const isBotActiveRef = useRef<boolean>(false);
   const botWillReplyRef = useRef<boolean>(false);
+  const botIsMTypeRef = useRef<boolean>(false);
   const botMessagesSentRef = useRef<number>(0);
   const botMaxMessagesRef = useRef<number>(1);
   const botUsedPoolsRef = useRef<number[]>([]);
@@ -293,6 +294,7 @@ export default function App() {
       // Clear previous bot states & timers securely
       isBotActiveRef.current = false;
       botWillReplyRef.current = false;
+      botIsMTypeRef.current = false;
       botMessagesSentRef.current = 0;
       botMaxMessagesRef.current = 1;
       botUsedPoolsRef.current = [];
@@ -1267,6 +1269,7 @@ export default function App() {
     // Secure Bot session teardown
     isBotActiveRef.current = false;
     botWillReplyRef.current = false;
+    botIsMTypeRef.current = false;
     botMessagesSentRef.current = 0;
     botMaxMessagesRef.current = 1;
     botUsedPoolsRef.current = [];
@@ -1307,6 +1310,25 @@ export default function App() {
       addMessage("stranger", text);
       botMessagesSentRef.current += 1;
       botUsedPoolsRef.current.push(poolNum);
+    }, 1200 + Math.random() * 800);
+  };
+
+  const sendBotMessageM = () => {
+    if (!isBotActiveRef.current || appStateRef.current !== "paired" || botMessagesSentRef.current >= botMaxMessagesRef.current) {
+      return;
+    }
+
+    const text = Math.random() < 0.5 ? "M" : "m";
+
+    setStrangerIsTyping(true);
+    botTypingTimeoutRef.current = setTimeout(() => {
+      setStrangerIsTyping(false);
+      
+      // Double check active state
+      if (!isBotActiveRef.current || appStateRef.current !== "paired") return;
+      
+      addMessage("stranger", text);
+      botMessagesSentRef.current += 1;
     }, 1200 + Math.random() * 800);
   };
 
@@ -1361,8 +1383,17 @@ export default function App() {
     
     botWillReplyRef.current = willReply;
     botMessagesSentRef.current = 0;
-    botMaxMessagesRef.current = Math.random() < 0.5 ? 1 : 2;
     botUsedPoolsRef.current = [];
+
+    // 20% of the ones that reply, the response is just 'M' or 'm'
+    const isMType = willReply && (Math.random() < 0.20);
+    botIsMTypeRef.current = isMType;
+
+    if (isMType) {
+      botMaxMessagesRef.current = 1;
+    } else {
+      botMaxMessagesRef.current = Math.random() < 0.5 ? 1 : 2;
+    }
 
     // Increment session bot count
     botConnectionSessionCountRef.current += 1;
@@ -1372,9 +1403,13 @@ export default function App() {
     if (willReply) {
       // Auto greet after a natural delay
       botTimerRef.current = setTimeout(() => {
-        // Choose any pool [1, 2, 3, 4] for the first reply
-        const firstPool = Math.floor(Math.random() * 4) + 1;
-        sendBotMessageFromPool(firstPool);
+        if (botIsMTypeRef.current) {
+          sendBotMessageM();
+        } else {
+          // Choose any pool [1, 2, 3, 4] for the first reply
+          const firstPool = Math.floor(Math.random() * 4) + 1;
+          sendBotMessageFromPool(firstPool);
+        }
       }, 2500);
     }
   };
